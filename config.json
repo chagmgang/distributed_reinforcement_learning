@@ -1,0 +1,24 @@
+{
+    "server_ip": "localhost",
+    "server_port": 8000,
+    "num_actors": 2,
+    "env": [
+        "BreakoutDeterministic-v4",
+        "BreakoutDeterministic-v4"],
+    "available_action": [4, 4],
+    "batch_size": 32,
+    "queue_size": 128,
+    "discount_factor": 0.99,
+    "model_input": [84, 84, 4],
+    "model_output": 18,
+    "reward_clipping": "abs_one",
+    "trajectory": 10,
+    "lstm_size": 256,
+    "start_learning_rate": 0.0006,
+    "end_learning_rate": 0.0,
+    "learning_frame": 1000000000,
+    "entropy_coef": 0.05,
+    "baseline_loss_coef": 1.0,
+    "gradient_clip_norm": 40.0,
+    "optimization_method": "impala"
+}
