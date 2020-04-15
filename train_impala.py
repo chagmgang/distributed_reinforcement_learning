@@ -177,6 +177,7 @@ def main(_):
                     previous_action = 0
                     previous_h = np.zeros([data['lstm_size']])
                     previous_c = np.zeros([data['lstm_size']])
+                    lives = 5
 
             unrolled_data = trajectory.extract()
             queue.append_to_queue(

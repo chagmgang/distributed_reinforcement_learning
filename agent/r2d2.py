@@ -140,6 +140,7 @@ class Agent:
 
     def train(self, state, action, reward, done, initial_h, initial_c, previous_action):
         state = np.stack(state)
+        state = np.stack(state) / 255
         action = np.stack(action)
         reward = np.stack(reward)
         done = np.stack(done)

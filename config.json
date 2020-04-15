@@ -23,7 +23,7 @@
         "StarGunnerDeterministic-v4",
         "StarGunnerDeterministic-v4",
         "StarGunnerDeterministic-v4"],
-    "available_action": [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18],
+    "available_action": [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18],
     "batch_size": 32,
     "queue_size": 128,
     "discount_factor": 0.99,
