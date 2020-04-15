@@ -127,7 +127,7 @@ class Agent:
         result_c = result_c[0]
         result_h = result_h[0]
         action = np.random.choice(self.num_action, p=policy)
-        return action, policy, max(policy), result_c, result_h
+        return action, policy, max(policy), result_h, result_c
 
     def train(self, state, reward, action, done, behavior_policy, previous_action, initial_h, initial_c):
         normalized_state = np.stack(state) / 255
