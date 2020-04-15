@@ -43,7 +43,7 @@ def main(_):
                 batch_size=data['batch_size'],
                 num_actors=data['num_actors'],
                 lstm_size=data['lstm_size'])
-            
+        
         learner = impala.Agent(
             trajectory=data['trajectory'],
             input_shape=data['model_input'],
@@ -61,6 +61,7 @@ def main(_):
             learner_name='learner')
 
     with tf.device(local_job_device):
+
         actor = impala.Agent(
             trajectory=data['trajectory'],
             input_shape=data['model_input'],
