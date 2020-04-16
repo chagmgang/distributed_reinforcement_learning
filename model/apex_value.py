@@ -48,6 +48,13 @@ def build_network(current_state, next_state, previous_action, action, num_action
             num_action=num_action,
             hidden_list=hidden_list)
 
+    with tf.variable_scope('main', reuse=tf.AUTO_REUSE):
+        next_main_q_value = dueling_network(
+            image=next_state,
+            previous_action=action,
+            num_action=num_action,
+            hidden_list=hidden_list)
+
     with tf.variable_scope('target'):
         target_q_value = dueling_network(
             image=next_state,
@@ -55,7 +62,7 @@ def build_network(current_state, next_state, previous_action, action, num_action
             num_action=num_action,
             hidden_list=hidden_list)
 
-    return main_q_value, target_q_value
+    return main_q_value, next_main_q_value, target_q_value
 
 def simple_network(state, previous_action, num_action):
     state = tf.layers.dense(inputs=state, units=256, activation=tf.nn.relu)

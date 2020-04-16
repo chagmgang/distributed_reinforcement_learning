@@ -8,7 +8,6 @@ import numpy as np
 import utils
 
 
-
 class Agent:
 
     def __init__(self, input_shape, num_action,
@@ -37,7 +36,7 @@ class Agent:
                 self.action_ph = tf.placeholder(tf.int32, shape=[None])
                 self.reward_ph = tf.placeholder(tf.float32, shape=[None])
                 self.done_ph = tf.placeholder(tf.bool, shape=[None])
-                self.weight_ph = tf.placeholder(tf.float32, shape=None)
+                self.weight_ph = tf.placeholder(tf.float32, shape=[None])
 
                 if reward_clipping == 'abs_one':
                     self.clipped_r_ph = tf.clip_by_value(self.reward_ph, -1.0, 1.0)
@@ -46,34 +45,14 @@ class Agent:
 
                 self.discounts = tf.to_float(~self.done_ph) * self.discount_factor
 
-                self.main_q_value, self.next_main_q_value, self.target_q_value = apex_value.build_simple_network(
+                self.main_q_value, self.next_main_q_value, self.target_q_value = apex_value.build_network(
                     current_state=self.state_ph,
                     next_state=self.next_state_ph,
                     previous_action=self.previous_action_ph,
                     action=self.action_ph,
-                    num_action=self.num_action)
-
-                # self.state_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
-                # self.previous_action_ph = tf.placeholder(tf.int32, shape=[None])
-                # self.next_state_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
-                # self.action_ph = tf.placeholder(tf.int32, shape=[None])
-                # self.reward_ph = tf.placeholder(tf.float32, shape=[None])
-                # self.done_ph = tf.placeholder(tf.bool, shape=[None])
-
-                # if reward_clipping == 'abs_one':
-                #     self.clipped_r_ph = tf.clip_by_value(self.reward_ph, -1.0, 1.0)
-                # else:
-                #     self.clipped_r_ph = self.reward_ph
-
-                # self.discounts = tf.to_float(~self.done_ph) * self.discount_factor
-
-                # self.main_q_value, self.target_q_value = apex_value.build_network(
-                #     current_state=self.state_ph,
-                #     next_state=self.next_state_ph,
-                #     previous_action=self.previous_action_ph,
-                #     action=self.action_ph,
-                #     num_action=self.a=num_action,
-                #     hidden_list=[256, 256])
+                    num_action=self.num_action,
+                    hidden_list=[256, 256]
+                )
 
                 self.next_action = tf.argmax(self.next_main_q_value, axis=1)
                 self.state_action_value = dqn.take_state_action_value(
@@ -85,7 +64,6 @@ class Agent:
                 self.td_error = (self.target_value - self.state_action_value) ** 2
                 self.weighted_td_error = self.td_error * self.weight_ph
                 self.value_loss = tf.reduce_mean(self.weighted_td_error)
-                # self.value_loss = tf.reduce_mean((self.target_value - self.state_action_value)**2)
 
             self.optimizer = tf.train.AdamOptimizer(self.start_learning_rate)
             self.train_op = self.optimizer.minimize(self.value_loss)
@@ -120,8 +98,7 @@ class Agent:
         self.sess.run(tf.global_variables_initializer())
 
     def get_policy_and_action(self, state, previous_action, epsilon):
-        # state = np.stack(state) / 255
-        state = np.stack(state)
+        state = np.stack(state) / 255
         main_q_value = self.sess.run(
             self.main_q_value,
             feed_dict={
@@ -137,7 +114,45 @@ class Agent:
 
         return action, main_q_value, main_q_value[action]
 
-    def train_per(self, batch_size):
+    def sample(self, batch_size):
+        minibatch, idxs, IS_weight = self.memory.sample(batch_size)
+        minibatch = np.array(minibatch)
+        state = np.stack(minibatch[:, 0])
+        next_state = np.stack(minibatch[:, 1])
+        previous_action = np.stack(minibatch[:, 2])
+        action = np.stack(minibatch[:, 3])
+        reward = np.stack(minibatch[:, 4])
+        done = np.stack(minibatch[:, 5])
+
+        data = {
+            'state': state,
+            'next_state': next_state,
+            'previous_action': previous_action,
+            'action': action,
+            'reward': reward,
+            'done': done}
+        
+        state = np.stack(state) / 255
+        next_state = np.stack(next_state) / 255
+
+        target_value, state_action_value = self.sess.run(
+            [self.target_value, self.state_action_value],
+            feed_dict={
+                self.state_ph: state,
+                self.previous_action_ph: previous_action,
+                self.next_state_ph: next_state,
+                self.action_ph: action,
+                self.reward_ph: reward,
+                self.done_ph: done})
+
+        td_error = np.abs(target_value - state_action_value)
+        for i in range(batch_size):
+            idx = idxs[i]
+            self.memory.update(idx, td_error[i])
+
+        return data
+
+    def train(self, batch_size):
         minibatch, idxs, IS_weight = self.memory.sample(batch_size)
         minibatch = np.array(minibatch)
 
@@ -147,6 +162,9 @@ class Agent:
         action = np.stack(minibatch[:, 3])
         reward = np.stack(minibatch[:, 4])
         done = np.stack(minibatch[:, 5])
+
+        state = np.stack(state) / 255
+        next_state = np.stack(next_state) / 255
 
         loss, _ = self.sess.run(
             [self.value_loss, self.train_op],
@@ -174,31 +192,5 @@ class Agent:
         for i in range(batch_size):
             idx = idxs[i]
             self.memory.update(idx, td_error[i])
-
-        return loss, 0
-
-    def train(self, state, next_state, previous_action, action, reward, done):
-
-        # state = np.stack(state) / 255
-        # next_state = np.stack(next_state) / 255
-
-        state = np.stack(state)
-        next_state = np.stack(next_state)
-        previous_action = np.stack(previous_action)
-        action = np.stack(action)
-        reward = np.stack(reward)
-        done = np.stack(done)
-
-        loss, _ = self.sess.run(
-            [self.value_loss, self.train_op],
-            feed_dict={
-                self.state_ph: state,
-                self.previous_action_ph: previous_action,
-                self.next_state_ph: next_state,
-                self.action_ph: action,
-                self.done_ph: done,
-                self.reward_ph: reward
-            }
-        )
 
         return loss, 0
