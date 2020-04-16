@@ -21,6 +21,7 @@ flags.DEFINE_enum('job_name',
 
 def main(_):
     data = json.load(open('config.json'))
+    data = data['impala']
     utils.check_properties(data)
 
     local_job_device = f'/job:{FLAGS.job_name}/task:{FLAGS.task}'
