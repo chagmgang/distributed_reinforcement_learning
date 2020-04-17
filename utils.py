@@ -20,6 +20,16 @@ def copy_src_to_dst(from_scope, to_scope):
         op_holder.append(to_var.assign(from_var))
     return op_holder
 
+def get_vars(scope):
+    return [x for x in tf.global_variables() if scope in x.name]
+
+def main_to_target(src, dst):
+    src = get_vars(src)
+    dst = get_vars(dst)
+    main_target = tf.group([tf.assign(v_targ, v_main)
+            for v_main, v_targ in zip(src, dst)])
+    return main_target
+
 def check_properties(data):
     ## check available_action < model_output
     for a in data['available_action']:
