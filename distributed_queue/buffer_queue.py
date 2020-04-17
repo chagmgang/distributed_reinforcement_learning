@@ -4,6 +4,126 @@ import numpy as np
 import random
 import collections
 
+class ApexFIFOQueue:
+
+    def __init__(self, trajectory, input_shape, output_size,
+                 queue_size, batch_size, num_actors):
+
+        self.trajectory = trajectory
+        self.input_shape = input_shape
+        self.output_size = output_size
+        self.batch_size = batch_size
+        
+        self.unrolled_state = tf.placeholder(tf.unit8, shape=[self.trajectory, *self.input_shape])
+        self.unrolled_next_state = tf.placeholder(tf.uint8, shape=[self.trajectory, *self.input_shape])
+        self.unrolled_previous_action = tf.placeholder(tf.int32, shape=[self.trajectory])
+        self.unrolled_action = tf.placeholder(tf.int32, shape=[self.trajectory])
+        self.unrolled_reward = tf.placeholder(tf.float32, shape=[self.trajectory])
+        self.unrolled_done = tf.placeholder(tf.bool, shape=[self.trajectory])
+
+        self.queue = tf.FIFOQueue(
+            queue_size,
+            [self.unrolled_state.dtype,
+             self.unrolled_next_state.dtype,
+             self.unrolled_previous_action.dtype,
+             self.unrolled_action.dtype,
+             self.unrolled_reward.dtype,
+             self.unrolled_done.dtype], shared_name='buffer')
+
+        self.queue_size = self.queue.size()
+
+        self.enqueue_ops = []
+        for i in range(num_actors):
+            self.enqueue_ops.append(
+                self.queue.enqueue(
+                    [self.unrolled_state,
+                     self.unrolled_next_state,
+                     self.unrolled_previous_action,
+                     self.unrolled_action,
+                     self.unrolled_reward,
+                     self.unrolled_done]))
+
+        self.dequeue = self.queue.dequeue()
+
+    def append_to_queue(self, task, unrolled_state, unrolled_next_state,
+                        unrolled_previous_action, unrolled_action,
+                        unrolled_reward, unrolled_done):
+        self.sess.run(
+            self.enqueue_ops[task],
+            feed_dict={
+                self.unrolled_state: unrolled_state,
+                self.unrolled_next_state: unrolled_next_state,
+                self.unrolled_previous_action: unrolled_previous_action,
+                self.unrolled_action: unrolled_action,
+                self.unrolled_reward: unrolled_reward,
+                self.unrolled_done: unrolled_done})
+
+    def sample_batch(self):
+        batch_tuple = collections.namedtuple(
+            'batch_tuple',
+            ['state', 'next_state', 'previous_action',
+             'action', 'reward', 'done'])
+        batch = [self.sess.run(self.dequeue) for i in range(self.batch_size)]
+        unrolled_data = batch_tuple(
+            [i[0] for i in batch],
+            [i[1] for i in batch],
+            [i[2] for i in batch],
+            [i[3] for i in batch],
+            [i[4] for i in batch],
+            [i[5] for i in batch])
+
+        return unrolled_data
+
+    def get_size(self):
+        size = self.sess.run(self.queue_size)
+        return size
+
+    def set_session(self, sess):
+        self.sess = sess
+
+class LocalBuffer:
+
+    def __init__(self, capacity):
+        self.state = collections.deque(maxlen=int(capacity))
+        self.next_state = collections.deque(maxlen=int(capacity))
+        self.previous_action = collections.deque(maxlen=int(capacity))
+        self.action = collections.deque(maxlen=int(capacity))
+        self.reward = collections.deque(maxlen=int(capacity))
+        self.done = collections.deque(maxlen=int(capacity))
+
+    def append(self, state, next_state, previous_action, action, reward, done):
+        self.state.append(state)
+        self.next_state.append(next_state)
+        self.previous_action.append(previous_action)
+        self.action.append(action)
+        self.reward.append(reward)
+        self.done.append(done)
+
+    def sample(self, batch_size):
+        arange_list = np.arange(len(self.state))
+        np.random.shuffle(arange_list)
+        idxs = arange_list[:batch_size]
+
+        state = [self.state[idx] for idx in idxs]
+        next_state = [self.next_state[idx] for idx in idxs]
+        previous_action = [self.previous_action[idx] for idx in idxs]
+        action = [self.action[idx] for idx in idxs]
+        reward = [self.reward[idx] for idx in idxs]
+        done = [self.done[idx] for idx in idxs]
+
+        data = {
+            'state': state,
+            'next_state': next_state,
+            'previous_action': previous_action,
+            'action': action,
+            'reward': reward,
+            'done': done}
+
+        return data
+
+    def __len__(self):
+        return len(self.state)
+
 class SumTree:
     write = 0
     def __init__(self, capacity):
