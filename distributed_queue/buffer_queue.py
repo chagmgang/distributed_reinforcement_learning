@@ -14,8 +14,8 @@ class ApexFIFOQueue:
         self.output_size = output_size
         self.batch_size = batch_size
         
-        self.unrolled_state = tf.placeholder(tf.unit8, shape=[self.trajectory, *self.input_shape])
-        self.unrolled_next_state = tf.placeholder(tf.uint8, shape=[self.trajectory, *self.input_shape])
+        self.unrolled_state = tf.placeholder(tf.int32, shape=[self.trajectory, *self.input_shape])
+        self.unrolled_next_state = tf.placeholder(tf.int32, shape=[self.trajectory, *self.input_shape])
         self.unrolled_previous_action = tf.placeholder(tf.int32, shape=[self.trajectory])
         self.unrolled_action = tf.placeholder(tf.int32, shape=[self.trajectory])
         self.unrolled_reward = tf.placeholder(tf.float32, shape=[self.trajectory])
@@ -58,12 +58,12 @@ class ApexFIFOQueue:
                 self.unrolled_reward: unrolled_reward,
                 self.unrolled_done: unrolled_done})
 
-    def sample_batch(self):
+    def sample_batch(self, batch_size):
         batch_tuple = collections.namedtuple(
             'batch_tuple',
             ['state', 'next_state', 'previous_action',
              'action', 'reward', 'done'])
-        batch = [self.sess.run(self.dequeue) for i in range(self.batch_size)]
+        batch = [self.sess.run(self.dequeue) for i in range(batch_size)]
         unrolled_data = batch_tuple(
             [i[0] for i in batch],
             [i[1] for i in batch],

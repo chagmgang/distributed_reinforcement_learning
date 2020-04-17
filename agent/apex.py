@@ -60,15 +60,24 @@ class Agent:
                 self.weighted_td_error = self.td_error * self.weight_ph
                 self.value_loss = tf.reduce_mean(self.weighted_td_error)
 
-            self.optimizer = tf.train.AdamOptimizer(self.start_learning_rate)
-            self.train_op = self.optimizer.minimize(self.value_loss)
+            self.num_env_frames = tf.train.get_or_create_global_step()
+            self.learning_rate = tf.train.polynomial_decay(self.start_learning_rate, self.num_env_frames, self.learning_frame, self.end_learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            gradients, variable = zip(*self.optimizer.compute_gradients(self.value_loss))
+            gradients, _ = tf.clip_by_global_norm(gradients, self.gradient_clip_norm)
+            self.train_op = self.optimizer.apply_gradients(zip(gradients, variable), global_step=self.num_env_frames)
+            # self.optimizer = tf.train.AdamOptimizer(self.start_learning_rate)
+            # self.train_op = self.optimizer.minimize(self.value_loss)
 
-        self.main_target = utils.main_to_target(f'{learner_name}/main', f'{learner_name}/target')
+        self.main_target = utils.main_to_target(f'{model_name}/main', f'{model_name}/target')
         self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
         self.saver = tf.train.Saver()
 
     def target_to_main(self):
         self.sess.run(self.main_target)
+
+    def parameter_sync(self):
+        self.sess.run(self.global_to_session)
 
     def set_session(self, sess):
         self.sess = sess
@@ -90,6 +99,52 @@ class Agent:
             action = np.random.choice(self.num_action)
 
         return action, main_q_value, main_q_value[action]
+
+    def target_main_test(self, state, previous_action):
+        state = np.stack(state) / 255
+        next_main_q_value, target_q_value = self.sess.run(
+            [self.next_main_q_value, self.target_q_value],
+            feed_dict={
+                self.next_state_ph: [state],
+                self.action_ph: [previous_action]})
+        print(next_main_q_value)
+        print(target_q_value)
+
+    def get_td_error(self, state, next_state, previous_action, action, reward, done):
+        state = np.stack(state) / 255
+        next_state = np.stack(next_state) / 255
+
+        target_value, state_action_value = self.sess.run(
+            [self.target_value, self.state_action_value],
+            feed_dict={
+                self.state_ph: state,
+                self.previous_action_ph: previous_action,
+                self.next_state_ph: next_state,
+                self.action_ph: action,
+                self.reward_ph: reward,
+                self.done_ph: done})
+
+        td_error = np.abs(target_value - state_action_value)
+        return td_error
+
+    def distributed_train(self, state, next_state, previous_action,
+                          action, reward, done, is_weight):
+        state = np.stack(state) / 255
+        next_state = np.stack(next_state) / 255
+        
+        loss, target_value, state_action_value, _ = self.sess.run(
+            [self.value_loss, self.target_value, self.state_action_value, self.train_op],
+            feed_dict={
+                self.state_ph: state,
+                self.next_state_ph: next_state,
+                self.previous_action_ph: previous_action,
+                self.action_ph: action,
+                self.reward_ph: reward,
+                self.done_ph: done,
+                self.weight_ph: is_weight})
+
+        td_error = np.abs(target_value - state_action_value)
+        return loss, td_error
 
     def train(self, state, next_state, previous_action, action, reward, done):
         state = np.stack(state) / 255
