@@ -185,13 +185,6 @@ def main(_):
 
                 score += reward
 
-                r = 0
-                if done:
-                    if score == 200:
-                        r = 1
-                    else:
-                        r = -1
-
                 local_buffer.append(
                     state=state, done=done,
                     reward=reward, next_state=next_state,

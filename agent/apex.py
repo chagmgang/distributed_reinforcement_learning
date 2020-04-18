@@ -66,8 +66,6 @@ class Agent:
             gradients, variable = zip(*self.optimizer.compute_gradients(self.value_loss))
             gradients, _ = tf.clip_by_global_norm(gradients, self.gradient_clip_norm)
             self.train_op = self.optimizer.apply_gradients(zip(gradients, variable), global_step=self.num_env_frames)
-            # self.optimizer = tf.train.AdamOptimizer(self.start_learning_rate)
-            # self.train_op = self.optimizer.minimize(self.value_loss)
 
         self.main_target = utils.main_to_target(f'{model_name}/main', f'{model_name}/target')
         self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
