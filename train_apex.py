@@ -184,7 +184,7 @@ def main(_):
                 episode_step += 1
                 total_max_prob += max_q_value
 
-                next_state, reward, done, info = env.step(action)
+                next_state, reward, done, info = env.step(action % data['available_action'][FLAGS.task])
 
                 score += reward
 
@@ -228,7 +228,6 @@ def main(_):
                     lives = 5
                     epsilon = 1 / (episode * 0.05 + 1)
                     state = env.reset()
-                    state = state * 255
                     previous_action = 0
 
 if __name__ == '__main__':
