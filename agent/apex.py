@@ -42,12 +42,20 @@ class Agent:
 
                 self.discounts = tf.to_float(~self.done_ph) * self.discount_factor
 
-                self.main_q_value, self.next_main_q_value, self.target_q_value = apex_value.build_simple_network(
+                self.main_q_value, self.next_main_q_value, self.target_q_value = apex_value.build_network(
                     current_state=self.state_ph,
                     next_state=self.next_state_ph,
                     previous_action=self.previous_action_ph,
                     action=self.action_ph,
-                    num_action=self.num_action)
+                    num_action=self.num_action,
+                    hidden_list=[256, 256])
+
+                # self.main_q_value, self.next_main_q_value, self.target_q_value = apex_value.build_simple_network(
+                #     current_state=self.state_ph,
+                #     next_state=self.next_state_ph,
+                #     previous_action=self.previous_action_ph,
+                #     action=self.action_ph,
+                #     num_action=self.num_action)
 
                 self.next_action = tf.argmax(self.next_main_q_value, axis=1)
                 self.state_action_value = dqn.take_state_action_value(

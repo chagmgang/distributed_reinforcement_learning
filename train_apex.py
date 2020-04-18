@@ -155,19 +155,20 @@ def main(_):
                     replay_buffer.update(idxs[i], td_error[i])
 
     else:
-
-        env = gym.make(data['env'][FLAGS.task])
+        env = wrappers.make_uint8_env(data['env'][FLAGS.task])
         local_buffer = buffer_queue.LocalBuffer(
             capacity=int(1e4))
 
         epsilon = 1.0
         train_step = 0
         episode = 0
+        episode_step = 0
+        total_max_prob = 0
 
         state = env.reset()
-        state = (state * 255).astype(np.int32)
         previous_action = 0
         score = 0
+        lives = 5
 
         writer = SummaryWriter('runs/{}/actor_{}'.format(data['env'][FLAGS.task], FLAGS.task))
 
@@ -180,18 +181,28 @@ def main(_):
                 action, q_value, max_q_value = actor.get_policy_and_action(
                     state=state, previous_action=previous_action, epsilon=epsilon)
 
-                next_state, reward, done, _ = env.step(action)
-                next_state = (next_state * 255).astype(np.int32)
+                episode_step += 1
+                total_max_prob += max_q_value
+
+                next_state, reward, done, info = env.step(action)
 
                 score += reward
 
+                if lives != info['ale.lives']:
+                    r = -1
+                    d = True
+                else:
+                    r = reward
+                    d = False
+
                 local_buffer.append(
-                    state=state, done=done,
-                    reward=reward, next_state=next_state,
+                    state=state, done=d,
+                    reward=r, next_state=next_state,
                     previous_action=previous_action, action=action)
                 
                 state = next_state
                 previous_action = action
+                lives = info['ale.lives']
 
                 if len(local_buffer) > 3 * data['trajectory']:
                     train_step += 1
@@ -208,9 +219,13 @@ def main(_):
                 if done:
                     print(episode, score, epsilon)
                     writer.add_scalar('data/epsilon', epsilon, episode)
+                    writer.add_scalar('data/episode_step', episode_step, episode)
                     writer.add_scalar('data/score', score, episode)
+                    writer.add_scalar('data/total_max_prob', total_max_prob / episode_step, episode)
+                    episode_step = 0
                     episode += 1
                     score = 0
+                    lives = 5
                     epsilon = 1 / (episode * 0.05 + 1)
                     state = env.reset()
                     state = state * 255
