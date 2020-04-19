@@ -3,7 +3,15 @@
 ## Information
 
 * 20 actors with 1 learner.
-* Tensorflow implementation with distributed tensorflow of server-client architecture.
+* Tensorflow implementation with `distributed tensorflow` of server-client architecture.
+
+## Dependency
+```
+opencv-python
+gym[atari]
+tensorboardX
+tensorflow==1.14.0
+```
 
 
 ## Implementation
