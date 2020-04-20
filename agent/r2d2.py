@@ -106,6 +106,7 @@ class Agent:
                 self.unmasked_td_error = (self.target_value - self.state_action_value) ** 2
                 self.td_error = self.unmasked_td_error * tf.to_float(~self.reformed_mask)
                 self.value_loss = tf.reduce_mean(self.td_error)
+
                 
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
             self.train_op = self.optimizer.minimize(self.value_loss)    
