@@ -122,12 +122,17 @@ def test():
 
     agent.set_session(tf.Session())
 
-    replay_buffer = buffer_queue.Memory(
-        capacity=int(1e3))
+    trajectory_buffer = buffer_queue.R2D2TrajectoryBuffer(
+        capacity=seq_len)
+    trajectory_buffer.init()
+
+    local_buffer = buffer_queue.R2D2LocalBuffer(
+        capacity=int(1e4))
     
     buffer_step = 0
     train_step = 0
     agent.target_to_main()
+    train_step = 0
 
     env = gym.make('CartPole-v0')
     episode = 0
@@ -145,124 +150,87 @@ def test():
 
     while True:
 
-        state_list = []
-        previous_action_list = []
-        previous_h_list = []
-        previous_c_list = []
-        action_list = []
-        reward_list = []
-        done_list = []
+        action, q_value, max_q_value, h, c = agent.get_policy_and_action(
+            state=state, h=previous_h, c=previous_c,
+            previous_action=previous_action, epsilon=epsilon)
 
-        for i in range(seq_len):
+        next_state, reward, done, _ = env.step(action)
+        next_state = (next_state * 255).astype(np.int32)
+        next_state = [next_state[0], next_state[2]]
 
-            action, q_value, max_q_value, h, c = agent.get_policy_and_action(
-                state=state, h=previous_h, c=previous_c,
-                previous_action=previous_action, epsilon=epsilon)
+        score += reward
 
-            next_state, reward, done, _ = env.step(action)
-            next_state = (next_state * 255).astype(np.int32)
-            next_state = [next_state[0], next_state[2]]
+        if len(trajectory_buffer) == seq_len:
+            train_step += 1
+            data = trajectory_buffer.extract()
+            local_buffer.append(
+                state=data['state'],
+                previous_action=data['previous_action'],
+                action=data['action'],
+                reward=data['reward'],
+                done=data['done'],
+                previous_h=data['previous_h'],
+                previous_c=data['previous_c'],
+                mask=data['mask'])
+            trajectory_buffer.init()
 
-            score += reward
+        trajectory_buffer.append(
+            state=state,
+            previous_action=previous_action,
+            previous_h=previous_h,
+            previous_c=previous_c,
+            action=action,
+            done=done,
+            reward=reward)
 
-            r = 0
-            if done:
-                if score == 200:
-                    r = 1
-                else:
-                    r = -1
+        state = next_state
+        previous_action = action
+        previous_h = h
+        previous_c = c
 
-            state_list.append(state)
-            previous_action_list.append(previous_action)
-            previous_h_list.append(previous_h)
-            previous_c_list.append(previous_c)
-            action_list.append(action)
-            reward_list.append(r)
-            done_list.append(done)
+        if len(local_buffer) > 128:
+            train_step += 1
+            sampled_data = local_buffer.sample(32)
+            agent.train(
+                state=sampled_data['state'],
+                previous_action=sampled_data['previous_action'],
+                initial_h=sampled_data['initial_h'],
+                initial_c=sampled_data['initial_c'],
+                action=sampled_data['action'],
+                reward=sampled_data['reward'],
+                done=sampled_data['done'],
+                mask=sampled_data['mask'])
+            if train_step % 1000 == 0:
+                agent.target_to_main()
 
-            state = next_state
-            previous_action = action
-            previous_h = h
-            previous_c = c
+        if done:
+            print(episode, score, epsilon)
+            train_step += 1
 
-            if done:
-                print(episode, score, epsilon)
-                writer.add_scalar('data/score', score, episode)
-                writer.add_scalar('data/epsilon', epsilon, episode)
-                episode += 1
-                score = 0
-                epsilon = 1.0 / (0.1 * episode + 1)
-                state = env.reset()
-                state = (state * 255).astype(np.int32)
-                state = [state[0], state[2]]
-                previous_action = 0
-                previous_h = np.zeros(lstm_size)
-                previous_c = np.zeros(lstm_size)
+            trajectory_buffer.padding()
+            data = trajectory_buffer.extract()
+            local_buffer.append(
+                state=data['state'],
+                previous_action=data['previous_action'],
+                action=data['action'],
+                reward=data['reward'],
+                done=data['done'],
+                previous_h=data['previous_h'],
+                previous_c=data['previous_c'],
+                mask=data['mask'])
+            trajectory_buffer.init()
 
-            if buffer_step > 128:
-                train_step += 1
-                minibatch, idxs, is_weight = replay_buffer.sample(64)
-
-                batch_state = []
-                batch_previous_action = []
-                batch_initial_h = []
-                batch_initial_c = []
-                batch_action = []
-                batch_reward = []
-                batch_done = []
-
-                for batch in minibatch:
-                    batch_state.append(batch[0])
-                    batch_previous_action.append(batch[1])
-                    batch_initial_h.append(batch[2])
-                    batch_initial_c.append(batch[3])
-                    batch_action.append(batch[4])
-                    batch_reward.append(batch[5])
-                    batch_done.append(batch[6])
-
-                loss, td_error = agent.train(
-                    state=batch_state,
-                    previous_action=batch_previous_action,
-                    initial_h=batch_initial_h,
-                    initial_c=batch_initial_c,
-                    action=batch_action,
-                    reward=batch_reward,
-                    done=batch_done,
-                    weight=is_weight)
-
-                writer.add_scalar('data/loss', loss, train_step)
-
-                for i in range(len(idxs)):
-                    replay_buffer.update(idxs[i], td_error[i])
-
-                if train_step % 2500 == 0:
-                    agent.target_to_main()
-
-        state_list = np.stack(state_list)
-        previous_action_list = np.stack(previous_action_list)
-        previous_h_list = np.stack(previous_h_list)
-        previous_c_list = np.stack(previous_c_list)
-        action_list = np.stack(action_list)
-        reward_list = np.stack(reward_list)
-        done_list = np.stack(done_list)
-
-        td_error = agent.get_td_error(
-                    state=state_list,
-                    previous_action=previous_action_list,
-                    initial_h=previous_h_list,
-                    initial_c=previous_c_list,
-                    action=action_list,
-                    reward=reward_list,
-                    done=done_list)
-
-        buffer_step += 1
-        replay_buffer.add(
-            error=td_error,
-            sample=[
-                state_list, previous_action_list,
-                previous_h_list, previous_c_list,
-                action_list, reward_list,
-                done_list])
+            writer.add_scalar('data/score', score, episode)
+            writer.add_scalar('data/epsilon', epsilon, episode)
+            episode += 1
+            score = 0
+            epsilon = 1.0 / (0.05 * episode + 1)
+            state = env.reset()
+            state = (state * 255).astype(np.int32)
+            state = [state[0], state[2]]
+            previous_action = 0
+            previous_h = np.zeros(lstm_size)
+            previous_c = np.zeros(lstm_size)
 
 if __name__ == '__main__':
     test()

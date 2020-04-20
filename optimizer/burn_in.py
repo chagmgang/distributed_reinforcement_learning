@@ -3,15 +3,16 @@ import tensorflow as tf
 def slice_in_burnin(size, tensor):
     return tensor[:, size:]
 
-def reformat_tensor(main_q_value, target_q_value, reward, action, done):
+def reformat_tensor(main_q_value, target_q_value, reward, action, done, mask):
     current_state_q_value = main_q_value[:, :-1]
     next_main_q_value = main_q_value[:, 1:]
     next_state_q_value = target_q_value[:, 1:]
     reward = reward[:, :-1]
     action = action[:, :-1]
     done = done[:, :-1]
+    mask = mask[:, :-1]
 
-    return current_state_q_value, next_main_q_value, next_state_q_value, reward, action, done
+    return current_state_q_value, next_main_q_value, next_state_q_value, reward, action, done, mask
 
 def select_state_value_action(q_value, action, num_action):
     onehot_action = tf.one_hot(action, num_action)

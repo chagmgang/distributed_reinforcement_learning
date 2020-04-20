@@ -45,6 +45,7 @@ class Agent:
                 self.trajectory_action = tf.placeholder(tf.int32, shape=[None, seq_len])
                 self.trajectory_done = tf.placeholder(tf.bool, shape=[None, seq_len])
                 self.trajectory_weight = tf.placeholder(tf.float32, shape=[None])
+                self.trajectory_mask = tf.placeholder(tf.bool, shape=[None, seq_len])
 
                 self.one_q_value, self.one_h, self.one_c, self.main_q_value, self.target_q_value = r2d2_lstm.build_simple_network(
                     state=self.s_ph, previous_action=self.pa_ph,
@@ -65,38 +66,49 @@ class Agent:
                     num_action=num_action,
                     hidden_list=hidden_list)
 
-                self.sliced_main_q_value = burn_in.slice_in_burnin(self.burn_in, self.main_q_value)
-                self.sliced_target_q_value = burn_in.slice_in_burnin(self.burn_in, self.target_q_value)
-                self.sliced_reward = burn_in.slice_in_burnin(self.burn_in, self.trajectory_reward)
-                self.sliced_action = burn_in.slice_in_burnin(self.burn_in, self.trajectory_action)
-                self.sliced_done = burn_in.slice_in_burnin(self.burn_in, self.trajectory_done)
+                self.sliced_main_q_value = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.main_q_value)
+                self.sliced_target_q_value = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.target_q_value)
+                self.sliced_reward = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.trajectory_reward)
+                self.sliced_done = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.trajectory_done)
+                self.sliced_action = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.trajectory_action)
+                self.sliced_mask = burn_in.slice_in_burnin(
+                    size=self.burn_in, tensor=self.trajectory_mask)
 
-                self.train_main_q_value, self.train_next_main_q_value, self.train_target_q_value, \
-                    self.train_reward, self.train_action, self.train_done = burn_in.reformat_tensor(
-                        main_q_value=self.sliced_main_q_value,
-                        target_q_value=self.sliced_target_q_value,
-                        reward=self.sliced_reward,
-                        action=self.sliced_action,
-                        done=self.sliced_done)
+                self.reformed_main_q_value, self.reformed_next_main_q_value, \
+                    self.reformed_target_q_value, self.reformed_reward, \
+                        self.reformed_action, self.reformed_done, \
+                            self.reformed_mask = burn_in.reformat_tensor(
+                                main_q_value=self.sliced_main_q_value,
+                                target_q_value=self.sliced_target_q_value,
+                                reward=self.sliced_reward,
+                                action=self.sliced_action,
+                                done=self.sliced_done,
+                                mask=self.sliced_mask)
 
-                self.discounts = tf.to_float(~self.train_done) * self.discount_factor
-
-                self.next_action = tf.argmax(self.train_next_main_q_value, axis=2)
-                self.state_action_value = burn_in.select_state_value_action(
-                    q_value=self.train_main_q_value, action=self.train_action, num_action=self.num_action)
+                self.discounts = self.discount_factor * tf.to_float(~self.reformed_done)
+                self.next_action = tf.argmax(self.reformed_next_main_q_value, axis=2)
                 self.next_state_action_value = burn_in.select_state_value_action(
-                    q_value=self.train_target_q_value, action=self.next_action, num_action=self.num_action)
+                    q_value=self.reformed_target_q_value, action=self.next_action, num_action=self.num_action)
                 self.inverse_rescaled_next_state_action_value = burn_in.inverse_value_function_rescaling(
                     x=self.next_state_action_value, eps=1e-3)
-                self.target_value = tf.stop_gradient(self.inverse_rescaled_next_state_action_value * self.discounts + self.train_reward)
-                self.rescaled_target_value = burn_in.value_function_rescaling(
-                    x=self.target_value, eps=1e-3)
-                self.td_error = (self.rescaled_target_value - self.state_action_value) ** 2
-                self.mean_td_error = tf.reduce_mean(self.td_error, axis=1)
-                self.value_loss = tf.reduce_mean(self.mean_td_error * self.trajectory_weight)
+                self.inverse_rescaled_target_value = self.discounts * self.inverse_rescaled_next_state_action_value + self.reformed_reward
+                self.target_value = tf.stop_gradient(burn_in.value_function_rescaling(
+                    x=self.inverse_rescaled_target_value, eps=1e-3))
 
-        self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-        self.train_op = self.optimizer.minimize(self.value_loss)
+                self.state_action_value = burn_in.select_state_value_action(
+                    q_value=self.reformed_main_q_value, action=self.reformed_action, num_action=self.num_action)
+                
+                self.unmasked_td_error = (self.target_value - self.state_action_value) ** 2
+                self.td_error = self.unmasked_td_error * tf.to_float(~self.reformed_mask)
+                self.value_loss = tf.reduce_mean(self.td_error)
+                
+            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            self.train_op = self.optimizer.minimize(self.value_loss)    
 
         self.main_target = utils.main_to_target(f'{model_name}/main', f'{model_name}/target')
         self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
@@ -169,7 +181,7 @@ class Agent:
         print('-------------------')
 
     def train(self, state, previous_action, initial_h, initial_c,
-              action, reward, done, weight):
+              action, reward, done, mask):
 
         state = np.stack(state) / 255
         previous_action = np.stack(previous_action)
@@ -178,10 +190,10 @@ class Agent:
         action = np.stack(action)
         reward = np.stack(reward)
         done = np.stack(done)
-        weight = np.stack(weight)
+        mask = np.stack(mask)
 
-        loss, td_error, _ = self.sess.run(
-            [self.value_loss, self.td_error, self.train_op],
+        loss, _ = self.sess.run(
+            [self.value_loss, self.train_op],
             feed_dict={
                 self.trajectory_main_s_ph: state,
                 self.trajectory_main_pa_ph: previous_action,
@@ -193,15 +205,48 @@ class Agent:
                 self.trajectory_target_initial_h_ph: initial_h[:, 0],
                 self.trajectory_target_initial_c_ph: initial_c[:, 0],
                 self.trajectory_target_done: done,
-
+                
                 self.trajectory_reward: reward,
-                self.trajectory_action: action,
                 self.trajectory_done: done,
-                self.trajectory_weight: weight})
+                self.trajectory_action: action,
+                self.trajectory_mask: mask})
 
-        td_error = np.mean(td_error, axis=1)
+    def train_per(self, state, previous_action, initial_h, initial_c,
+              action, reward, done, weight):
 
-        return loss, td_error
+        print(np.stack(state).shape)
+
+        # state = np.stack(state) / 255
+        # previous_action = np.stack(previous_action)
+        # initial_h = np.stack(initial_h)
+        # initial_c = np.stack(initial_c)
+        # action = np.stack(action)
+        # reward = np.stack(reward)
+        # done = np.stack(done)
+        # weight = np.stack(weight)
+
+        # loss, td_error, _ = self.sess.run(
+        #     [self.value_loss, self.td_error, self.train_op],
+        #     feed_dict={
+        #         self.trajectory_main_s_ph: state,
+        #         self.trajectory_main_pa_ph: previous_action,
+        #         self.trajectory_main_initial_h_ph: initial_h,
+        #         self.trajectory_main_initial_c_ph: initial_c,
+
+        #         self.trajectory_target_s_ph: state,
+        #         self.trajectory_target_pa_ph: previous_action,
+        #         self.trajectory_target_initial_h_ph: initial_h[:, 0],
+        #         self.trajectory_target_initial_c_ph: initial_c[:, 0],
+        #         self.trajectory_target_done: done,
+
+        #         self.trajectory_reward: reward,
+        #         self.trajectory_action: action,
+        #         self.trajectory_done: done,
+        #         self.trajectory_weight: weight})
+
+        # td_error = np.mean(td_error, axis=1)
+
+        # return loss, td_error
 
     def get_td_error(self, state, previous_action, initial_h, initial_c,
                      action, reward, done):
