@@ -50,5 +50,6 @@ CUDA_VISIBLE_DEVICES=-1 python train_impala.py --job_name actor --task 19
 2. [DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY](https://arxiv.org/abs/1803.00933)
 3. [Recurrent Experience Replay in Distributed Reinforcement Learning](https://openreview.net/forum?id=r1lyTjAqYX)
 4. [deepmind/scalable_agent](https://github.com/deepmind/scalable_agent)
-5. [Asynchronous_Advatnage_Actor_Critic](https://github.com/alphastarkor/distributed_tensorflow_a3c)
-6. [Relational_Deep_Reinforcement_Learning](https://github.com/RLOpensource/Relational_Deep_Reinforcement_Learning)
+5. [google-research/seed-rl](https://github.com/google-research/seed_rl)
+6. [Asynchronous_Advatnage_Actor_Critic](https://github.com/alphastarkor/distributed_tensorflow_a3c)
+7. [Relational_Deep_Reinforcement_Learning](https://github.com/RLOpensource/Relational_Deep_Reinforcement_Learning)

@@ -86,9 +86,12 @@ class Agent:
                     q_value=self.train_main_q_value, action=self.train_action, num_action=self.num_action)
                 self.next_state_action_value = burn_in.select_state_value_action(
                     q_value=self.train_target_q_value, action=self.next_action, num_action=self.num_action)
-                self.target_value = tf.stop_gradient(self.next_state_action_value * self.discounts + self.train_reward)
-
-                self.td_error = (self.target_value - self.state_action_value) ** 2
+                self.inverse_rescaled_next_state_action_value = burn_in.inverse_value_function_rescaling(
+                    x=self.next_state_action_value, eps=1e-3)
+                self.target_value = tf.stop_gradient(self.inverse_rescaled_next_state_action_value * self.discounts + self.train_reward)
+                self.rescaled_target_value = burn_in.value_function_rescaling(
+                    x=self.target_value, eps=1e-3)
+                self.td_error = (self.rescaled_target_value - self.state_action_value) ** 2
                 self.mean_td_error = tf.reduce_mean(self.td_error, axis=1)
                 self.value_loss = tf.reduce_mean(self.mean_td_error * self.trajectory_weight)
 
@@ -140,8 +143,8 @@ class Agent:
         reward = np.stack(reward)
         done = np.stack(done)
 
-        train_next_main_q_value, train_target_q_value = self.sess.run(
-            [self.main_q_value, self.target_q_value],
+        train_main_q_value, train_next_main_q_value, train_target_q_value = self.sess.run(
+            [self.train_main_q_value, self.train_next_main_q_value, self.train_target_q_value],
             feed_dict={
                 self.trajectory_main_s_ph: state,
                 self.trajectory_main_pa_ph: previous_action,
@@ -157,8 +160,12 @@ class Agent:
                 self.trajectory_reward: reward,
                 self.trajectory_action: action,
                 self.trajectory_done: done})
-
-        print(train_next_main_q_value - train_target_q_value)
+        print('main')
+        print(train_main_q_value)
+        print('next main')
+        print(train_next_main_q_value)
+        print('target')
+        print(train_target_q_value)
         print('-------------------')
 
     def train(self, state, previous_action, initial_h, initial_c,
