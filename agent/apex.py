@@ -62,7 +62,7 @@ class Agent:
                     state_value=self.main_q_value, action=self.action_ph, num_action=self.num_action)
                 self.next_state_action_value = dqn.take_state_action_value(
                     state_value=self.target_q_value, action=self.next_action, num_action=self.num_action)
-                self.target_value = self.next_state_action_value * self.discounts + self.clipped_r_ph
+                self.target_value = tf.stop_gradient(self.next_state_action_value * self.discounts + self.clipped_r_ph)
 
                 self.td_error = (self.target_value - self.state_action_value) ** 2
                 self.weighted_td_error = self.td_error * self.weight_ph

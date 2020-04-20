@@ -4,6 +4,53 @@ import numpy as np
 import random
 import collections
 
+class R2D2LocalBuffer:
+
+    def __init__(self, capacity):
+        self.state = collections.deque(maxlen=int(capacity))
+        self.previous_action = collections.deque(maxlen=int(capacity))
+        self.action = collections.deque(maxlen=int(capacity))
+        self.reward = collections.deque(maxlen=int(capacity))
+        self.done = collections.deque(maxlen=int(capacity))
+        self.previous_h = collections.deque(maxlen=int(capacity))
+        self.previous_c = collections.deque(maxlen=int(capacity))
+
+    def append(self, state, previous_action, action, reward, done, previous_h, previous_c):
+        self.state.append(state)
+        self.previous_action.append(previous_action)
+        self.action.append(action)
+        self.reward.append(reward)
+        self.done.append(done)
+        self.previous_c.append(previous_c)
+        self.previous_h.append(previous_h)
+    
+    def sample(self, batch_size):
+        arange_list = np.arange(len(self.state))
+        np.random.shuffle(arange_list)
+        idxs = arange_list[:batch_size]
+
+        state = [self.state[idx] for idx in idxs]
+        previous_action = [self.previous_action[idx] for idx in idxs]
+        action = [self.action[idx] for idx in idxs]
+        reward = [self.reward[idx] for idx in idxs]
+        done = [self.done[idx] for idx in idxs]
+        previous_c = [self.previous_c[idx] for idx in idxs]
+        previous_h = [self.previous_h[idx] for idx in idxs]
+
+        data = {
+            'state': state,
+            'previous_action': previous_action,
+            'action': action,
+            'reward': reward,
+            'done': done,
+            'initial_c': previous_c,
+            'initial_h': previous_h}
+        
+        return data
+    
+    def __len__(self):
+        return len(self.state)
+
 class ApexFIFOQueue:
 
     def __init__(self, trajectory, input_shape, output_size,
