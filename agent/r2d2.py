@@ -105,7 +105,11 @@ class Agent:
                 
                 self.unmasked_td_error = (self.target_value - self.state_action_value) ** 2
                 self.td_error = self.unmasked_td_error * tf.to_float(~self.reformed_mask)
-                self.value_loss = tf.reduce_mean(self.td_error)
+                self.sum_td_error = tf.reduce_sum(self.td_error, axis=1)
+                self.unmasked_sum_idx = tf.reduce_sum(tf.to_float(~self.reformed_mask), axis=1) + 1e-8
+                self.mean_td_error = self.sum_td_error / self.unmasked_sum_idx
+                self.weighted_td_error = self.mean_td_error * self.trajectory_weight
+                self.value_loss = tf.reduce_mean(self.weighted_td_error)
 
                 
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
@@ -114,6 +118,39 @@ class Agent:
         self.main_target = utils.main_to_target(f'{model_name}/main', f'{model_name}/target')
         self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
         self.saver = tf.train.Saver()
+
+    def get_td_error(self, state, previous_action, initial_h, initial_c,
+                     action, reward, done, mask):
+        
+        state = np.stack(state) / 255
+        previous_action = np.stack(previous_action)
+        initial_h = np.stack(initial_h)
+        initial_c = np.stack(initial_c)
+        action = np.stack(action)
+        reward = np.stack(reward)
+        done = np.stack(done)
+        mask = np.stack(mask)
+
+        td_error = self.sess.run(
+            self.mean_td_error,
+            feed_dict={
+                self.trajectory_main_s_ph: [state],
+                    self.trajectory_main_pa_ph: [previous_action],
+                    self.trajectory_main_initial_h_ph: [initial_h],
+                    self.trajectory_main_initial_c_ph: [initial_c],
+
+                    self.trajectory_target_s_ph: [state],
+                    self.trajectory_target_pa_ph: [previous_action],
+                    self.trajectory_target_initial_h_ph: [initial_h[0]],
+                    self.trajectory_target_initial_c_ph: [initial_c[0]],
+                    self.trajectory_target_done: [done],
+
+                    self.trajectory_reward: [reward],
+                    self.trajectory_action: [action],
+                    self.trajectory_done: [done],
+                    self.trajectory_mask: [mask]})
+        return td_error
+
 
     def parameter_sync(self):
         self.sess.run(self.global_to_session)
@@ -213,44 +250,7 @@ class Agent:
                 self.trajectory_mask: mask})
 
     def train_per(self, state, previous_action, initial_h, initial_c,
-              action, reward, done, weight):
-
-        print(np.stack(state).shape)
-
-        # state = np.stack(state) / 255
-        # previous_action = np.stack(previous_action)
-        # initial_h = np.stack(initial_h)
-        # initial_c = np.stack(initial_c)
-        # action = np.stack(action)
-        # reward = np.stack(reward)
-        # done = np.stack(done)
-        # weight = np.stack(weight)
-
-        # loss, td_error, _ = self.sess.run(
-        #     [self.value_loss, self.td_error, self.train_op],
-        #     feed_dict={
-        #         self.trajectory_main_s_ph: state,
-        #         self.trajectory_main_pa_ph: previous_action,
-        #         self.trajectory_main_initial_h_ph: initial_h,
-        #         self.trajectory_main_initial_c_ph: initial_c,
-
-        #         self.trajectory_target_s_ph: state,
-        #         self.trajectory_target_pa_ph: previous_action,
-        #         self.trajectory_target_initial_h_ph: initial_h[:, 0],
-        #         self.trajectory_target_initial_c_ph: initial_c[:, 0],
-        #         self.trajectory_target_done: done,
-
-        #         self.trajectory_reward: reward,
-        #         self.trajectory_action: action,
-        #         self.trajectory_done: done,
-        #         self.trajectory_weight: weight})
-
-        # td_error = np.mean(td_error, axis=1)
-
-        # return loss, td_error
-
-    def get_td_error(self, state, previous_action, initial_h, initial_c,
-                     action, reward, done):
+              action, reward, done, mask, weight):
 
         state = np.stack(state) / 255
         previous_action = np.stack(previous_action)
@@ -259,24 +259,26 @@ class Agent:
         action = np.stack(action)
         reward = np.stack(reward)
         done = np.stack(done)
+        mask = np.stack(mask)
+        weight = np.stack(weight)
 
-        td_error = self.sess.run(
-            self.td_error,
+        loss, _ = self.sess.run(
+            [self.value_loss, self.train_op],
             feed_dict={
-                self.trajectory_main_s_ph: [state],
-                self.trajectory_main_pa_ph: [previous_action],
-                self.trajectory_main_initial_h_ph: [initial_h],
-                self.trajectory_main_initial_c_ph: [initial_c],
+                self.trajectory_main_s_ph: state,
+                self.trajectory_main_pa_ph: previous_action,
+                self.trajectory_main_initial_h_ph: initial_h,
+                self.trajectory_main_initial_c_ph: initial_c,
+                
+                self.trajectory_target_s_ph: state,
+                self.trajectory_target_pa_ph: previous_action,
+                self.trajectory_target_initial_h_ph: initial_h[:, 0],
+                self.trajectory_target_initial_c_ph: initial_c[:, 0],
+                self.trajectory_target_done: done,
 
-                self.trajectory_target_s_ph: [state],
-                self.trajectory_target_pa_ph: [previous_action],
-                self.trajectory_target_initial_h_ph: [initial_h[0]],
-                self.trajectory_target_initial_c_ph: [initial_c[0]],
-                self.trajectory_target_done: [done],
-
-                self.trajectory_reward: [reward],
-                self.trajectory_action: [action],
-                self.trajectory_done: [done]})
-        td_error = np.mean(td_error)
-        td_error = np.abs(td_error)
-        return td_error
+                self.trajectory_reward: reward,
+                self.trajectory_action: action,
+                self.trajectory_done: done,
+                self.trajectory_mask: mask,
+                self.trajectory_weight: weight})
+        return loss
