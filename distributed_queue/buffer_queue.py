@@ -6,122 +6,41 @@ import collections
 
 class R2D2TrajectoryBuffer:
 
-    def __init__(self, capacity):
-        self.capacity = capacity
+    def __init__(self, seq_len):
+        self.seq_len = seq_len
+        
+        self.state = collections.deque(maxlen=int(self.seq_len))
+        self.action = collections.deque(maxlen=int(self.seq_len))
+        self.reward = collections.deque(maxlen=int(self.seq_len))
+        self.done = collections.deque(maxlen=int(self.seq_len))
+        self.initial_h = collections.deque(maxlen=int(self.seq_len))
+        self.initial_c = collections.deque(maxlen=int(self.seq_len))
 
-        self.state = collections.deque(maxlen=int(capacity))
-        self.previous_action = collections.deque(maxlen=int(capacity))
-        self.previous_h = collections.deque(maxlen=int(capacity))
-        self.previous_c = collections.deque(maxlen=int(capacity))
-        self.action = collections.deque(maxlen=int(capacity))
-        self.done = collections.deque(maxlen=int(capacity))
-        self.reward = collections.deque(maxlen=int(capacity))
-        self.mask = collections.deque(maxlen=int(capacity))
-
-    def append(self, state, previous_action, previous_h,
-               previous_c, action, done, reward):
+    def append(self, state, action, reward, done, initial_h, initial_c):
         self.state.append(state)
-        self.previous_action.append(previous_action)
-        self.previous_h.append(previous_h)
-        self.previous_c.append(previous_c)
         self.action.append(action)
-        self.done.append(done)
         self.reward.append(reward)
-        self.mask.append(False)
+        self.done.append(done)
+        self.initial_h.append(initial_h)
+        self.initial_c.append(initial_c)
 
-    def padding(self):
-        while len(self.state) < self.capacity:
-            self.state.append(self.state[0])
-        while len(self.previous_action) < self.capacity:
-            self.previous_action.append(self.previous_action[0])
-        while len(self.previous_h) < self.capacity:
-            self.previous_h.append(self.previous_h[0])
-        while len(self.previous_c) < self.capacity:
-            self.previous_c.append(self.previous_c[0])
-        while len(self.action) < self.capacity:
-            self.action.append(self.action[0])
-        while len(self.done) < self.capacity:
-            self.done.append(self.done[0])
-        while len(self.reward) < self.capacity:
-            self.reward.append(self.reward[0])
-        while len(self.mask) < self.capacity:
-            self.mask.append(True)
-
-    def __len__(self):
-        return len(self.state)
+    def init(self):
+        self.state = collections.deque(maxlen=int(self.seq_len))
+        self.action = collections.deque(maxlen=int(self.seq_len))
+        self.reward = collections.deque(maxlen=int(self.seq_len))
+        self.done = collections.deque(maxlen=int(self.seq_len))
+        self.initial_h = collections.deque(maxlen=int(self.seq_len))
+        self.initial_c = collections.deque(maxlen=int(self.seq_len))
 
     def extract(self):
         data = {
-            'state': np.stack(self.state),
-            'previous_action': np.stack(self.previous_action),
-            'previous_h': np.stack(self.previous_h),
-            'previous_c': np.stack(self.previous_c),
-            'action': np.stack(self.action),
-            'done': np.stack(self.done),
-            'reward': np.stack(self.reward),
-            'mask': np.stack(self.mask)}
+            'state':self.state,
+            'action':self.action,
+            'reward':self.reward,
+            'done':self.done,
+            'initial_h':self.initial_h,
+            'initial_c':self.initial_c}
         return data
-
-    def init(self):
-        self.state = collections.deque(maxlen=int(self.capacity))
-        self.previous_action = collections.deque(maxlen=int(self.capacity))
-        self.previous_h = collections.deque(maxlen=int(self.capacity))
-        self.previous_c = collections.deque(maxlen=int(self.capacity))
-        self.action = collections.deque(maxlen=int(self.capacity))
-        self.done = collections.deque(maxlen=int(self.capacity))
-        self.reward = collections.deque(maxlen=int(self.capacity))
-        self.mask = collections.deque(maxlen=int(self.capacity))
-
-class R2D2LocalBuffer:
-
-    def __init__(self, capacity):
-        self.state = collections.deque(maxlen=int(capacity))
-        self.previous_action = collections.deque(maxlen=int(capacity))
-        self.action = collections.deque(maxlen=int(capacity))
-        self.reward = collections.deque(maxlen=int(capacity))
-        self.done = collections.deque(maxlen=int(capacity))
-        self.previous_h = collections.deque(maxlen=int(capacity))
-        self.previous_c = collections.deque(maxlen=int(capacity))
-        self.mask = collections.deque(maxlen=int(capacity))
-
-    def append(self, state, previous_action, action, reward, done, previous_h, previous_c, mask):
-        self.state.append(state)
-        self.previous_action.append(previous_action)
-        self.action.append(action)
-        self.reward.append(reward)
-        self.done.append(done)
-        self.previous_c.append(previous_c)
-        self.previous_h.append(previous_h)
-        self.mask.append(mask)
-    
-    def sample(self, batch_size):
-        arange_list = np.arange(len(self.state))
-        np.random.shuffle(arange_list)
-        idxs = arange_list[:batch_size]
-
-        state = [self.state[idx] for idx in idxs]
-        previous_action = [self.previous_action[idx] for idx in idxs]
-        action = [self.action[idx] for idx in idxs]
-        reward = [self.reward[idx] for idx in idxs]
-        done = [self.done[idx] for idx in idxs]
-        previous_c = [self.previous_c[idx] for idx in idxs]
-        previous_h = [self.previous_h[idx] for idx in idxs]
-        mask = [self.mask[idx] for idx in idxs]
-
-        data = {
-            'state': state,
-            'previous_action': previous_action,
-            'action': action,
-            'reward': reward,
-            'done': done,
-            'initial_c': previous_c,
-            'initial_h': previous_h,
-            'mask': mask}
-        
-        return data
-    
-    def __len__(self):
-        return len(self.state)
 
 class ApexFIFOQueue:
 
