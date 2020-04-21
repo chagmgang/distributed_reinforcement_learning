@@ -1,267 +1,180 @@
 from model import r2d2_lstm
-from optimizer import burn_in
+from optimizer import burn_in as r2d2_optimizer
+from distributed_queue import buffer_queue
 
 import tensorflow as tf
 import numpy as np
 
-import json
+import gym
 import utils
-import random
 
 class Agent:
 
-    def __init__(self, trajectory, input_shape, num_action, lstm_hidden_size,
-                 discount_factor, start_learning_rate, end_learning_rate,
-                 learning_frame, baseline_loss_coef, entropy_coef,
-                 gradient_clip_norm, reward_clipping, model_name, learner_name):
-
+    def __init__(self, seq_len, burn_in, input_shape, num_action, lstm_size):
+        self.seq_len = seq_len
+        self.burn_in = burn_in
         self.input_shape = input_shape
-        self.trajectory = trajectory
         self.num_action = num_action
-        self.lstm_hidden_size = lstm_hidden_size
-        self.discount_factor = discount_factor
-        self.start_learning_rate = start_learning_rate
-        self.end_learning_rate = end_learning_rate
-        self.learning_frame = learning_frame
-        self.baseline_loss_coef = baseline_loss_coef
-        self.entropy_coef = entropy_coef
-        self.gradient_clip_norm = gradient_clip_norm
-        self.burnin_size = int(self.trajectory / 2)
+        self.lstm_size = lstm_size
 
-        with tf.variable_scope(model_name):
-            with tf.device('cpu'):
-                self.state = tf.placeholder(tf.float32, shape=[None, *input_shape])
-                self.previous_action = tf.placeholder(tf.int32, shape=[None])
-                self.initial_c = tf.placeholder(tf.float32, shape=[None, lstm_hidden_size])
-                self.initial_h = tf.placeholder(tf.float32, shape=[None, lstm_hidden_size])
+        self.s_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
+        self.h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
 
-                self.trajectory_main_state = tf.placeholder(tf.float32, shape=[None, trajectory, *input_shape])
-                self.trajectory_main_previous_action = tf.placeholder(tf.int32, shape=[None, trajectory])
-                self.trajectory_main_initial_c = tf.placeholder(tf.float32, shape=[None, trajectory, lstm_hidden_size])
-                self.trajectory_main_initial_h = tf.placeholder(tf.float32, shape=[None, trajectory, lstm_hidden_size])
+        self.main_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
+        self.main_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.main_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.main_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
 
-                self.trajectory_target_state = tf.placeholder(tf.float32, shape=[None, trajectory, *input_shape])
-                self.trajectory_target_previous_action = tf.placeholder(tf.int32, shape=[None, trajectory])
-                self.trajectory_target_initial_c = tf.placeholder(tf.float32, shape=[None, lstm_hidden_size])
-                self.trajectory_target_initial_h = tf.placeholder(tf.float32, shape=[None, lstm_hidden_size])
-                self.trajectory_target_done = tf.placeholder(tf.bool, shape=[None, trajectory])
+        self.target_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
+        self.target_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.target_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.target_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
 
-                self.trajectory_reward = tf.placeholder(tf.float32, shape=[None, trajectory])
-                self.trajectory_action = tf.placeholder(tf.int32, shape=[None, trajectory])
-                self.trajectory_done = tf.placeholder(tf.bool, shape=[None, trajectory])
+        self.reward_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len])
+        self.done_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+        self.action_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
+        self.weight_ph = tf.placeholder(tf.float32, shape=[None])
 
-                if reward_clipping == 'abs_one':
-                    self.trajectory_reward = tf.clip_by_value(self.trajectory_reward, -1.0, 1.0)
-                elif reward_clipping == 'soft_asymmetric':
-                    squeezed = tf.tanh(self.trajectory_reward / 5.0)
-                    self.trajectory_reward = tf.where(self.trajectory_reward < 0, .3 * squeezed, squeezed) * 5.
+        self.q_value, self.h, self.c, self.main_q, self.target_q = r2d2_lstm.build_network(
+                s_ph=self.s_ph, h_ph=self.h_ph, c_ph=self.c_ph,
+                main_s_ph=self.main_s_ph, main_h_ph=self.main_h_ph,
+                main_c_ph=self.main_c_ph, main_d_ph=self.main_d_ph,
+                target_s_ph=self.target_s_ph, target_h_ph=self.target_h_ph,
+                target_c_ph=self.target_c_ph, target_d_ph=self.target_d_ph,
+                lstm_size=self.lstm_size, num_action=self.num_action)
 
-                self.one_step_q_value, self.one_step_h, self.one_step_c, \
-                    self.main_q_value, self.target_q_value = r2d2_lstm.build_network(
-                        state=self.state,
-                        previous_action=self.previous_action,
-                        initial_h=self.initial_h, initial_c=self.initial_c,
-                        trajectory_main_state=self.trajectory_main_state,
-                        trajectory_main_previous_action=self.trajectory_main_previous_action,
-                        trajectory_main_initial_h=self.trajectory_main_initial_h,
-                        trajectory_main_initial_c=self.trajectory_main_initial_c,
-                        trajectory_target_state=self.trajectory_target_state,
-                        trajectory_target_previous_action=self.trajectory_target_previous_action,
-                        trajectory_target_initial_h=self.trajectory_target_initial_h,
-                        trajectory_target_initial_c=self.trajectory_target_initial_c,
-                        trajectory_target_done=self.trajectory_target_done,
-                        lstm_size=self.lstm_hidden_size,
-                        num_action=self.num_action,
-                        hidden_list=[256, 256])
+        self.discounts = tf.to_float(~self.done_ph) * 0.997
 
-                self.burn_in_main_q_value = burn_in.slice_in_burnin(self.burnin_size, self.main_q_value)
-                self.burn_in_target_q_value = burn_in.slice_in_burnin(self.burnin_size, self.target_q_value)
-                self.burn_in_action = burn_in.slice_in_burnin(self.burnin_size, self.trajectory_action)
-                self.burn_in_reward = burn_in.slice_in_burnin(self.burnin_size, self.trajectory_reward)
-                self.burn_in_done = burn_in.slice_in_burnin(self.burnin_size, self.trajectory_done)
+        burned_main_q = self.main_q[:, self.burn_in:]
+        burned_target_q = self.target_q[:, self.burn_in:]
+        burned_reward = self.reward_ph[:, self.burn_in:]
+        burned_discounts = self.discounts[:, self.burn_in:]
+        burned_action = self.action_ph[:, self.burn_in:]
 
-                self.state_value, self.next_state_value, self.reward, self.action, self.done = burn_in.reformat_tensor(
-                    main_q_value=self.burn_in_main_q_value,
-                    target_q_value=self.burn_in_target_q_value,
-                    reward=self.burn_in_reward,
-                    action=self.burn_in_action,
-                    done=self.burn_in_done)
+        state_main_q = burned_main_q[:, :-1]
+        next_state_main_q = burned_main_q[:, 1:]
+        next_state_target_q = burned_target_q[:, 1:]
+        action = burned_action[:, :-1]
+        next_action = tf.argmax(next_state_main_q, axis=2)
+        reward = burned_reward[:, :-1]
+        discounts = burned_discounts[:, :-1]
 
-                self.next_action = tf.argmax(self.next_state_value, axis=2)
+        onehot_action = tf.one_hot(action, self.num_action)
+        onehot_next_action = tf.one_hot(next_action, self.num_action)
 
-                self.state_action_value = burn_in.select_state_value_action(
-                    q_value=self.state_value, action=self.action, num_action=self.num_action)
-                self.next_state_action_value = burn_in.select_state_value_action(
-                    q_value=self.next_state_value, action=self.next_action, num_action=self.num_action)
+        self.state_action_value = tf.reduce_sum(state_main_q * onehot_action, axis=2)
+        self.next_state_action_value = tf.reduce_sum(next_state_target_q * onehot_next_action, axis=2)
+        self.rescaled_next_state_action_value = r2d2_optimizer.inverse_value_function_rescaling(
+                x=self.next_state_action_value, eps=1e-3)
+        self.rescaled_target_value = tf.stop_gradient(self.rescaled_next_state_action_value * discounts + reward)
+        self.target_value = r2d2_optimizer.value_function_rescaling(
+                x=self.rescaled_target_value, eps=1e-3)
+        self.unweighted_loss = tf.reduce_mean(((self.target_value - self.state_action_value) ** 2), axis=1)
+        self.value_loss = tf.reduce_mean(self.unweighted_loss * self.weight_ph)
 
-                self.target_value = tf.stop_gradient(self.next_state_action_value * tf.to_float(~self.done) * self.discount_factor + self.reward)
-                
-                self.value_loss = tf.reduce_mean((self.target_value - self.state_action_value) ** 2)
-            
-            self.num_env_frames = tf.train.get_or_create_global_step()
-            self.learning_rate = tf.train.polynomial_decay(self.start_learning_rate, self.num_env_frames, self.learning_frame, self.end_learning_rate)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-            gradients, variable = zip(*self.optimizer.compute_gradients(self.value_loss))
-            gradients, _ = tf.clip_by_global_norm(gradients, self.gradient_clip_norm)
-            self.train_op = self.optimizer.apply_gradients(zip(gradients, variable), global_step=self.num_env_frames)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=1e-4)
+        self.train_op = self.optimizer.minimize(self.value_loss)
 
-        self.main_target = utils.copy_src_to_dst(f'{learner_name}/target', f'{learner_name}/main')
-        self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
-        self.saver = tf.train.Saver()
+        self.main_target = utils.main_to_target('main', 'target')
 
-    def target_to_main(self):
+    def get_td_error(self, state, action, h, c, reward, done):
+        state = np.stack([state])
+        action = np.stack([action])
+        h = np.stack([h])
+        c = np.stack([c])
+        reward = np.stack([reward])
+        done = np.stack([done])
+
+        target_value, state_action_value = self.sess.run(
+            [self.target_value, self.state_action_value],
+            feed_dict={
+                self.main_s_ph: state,
+                self.main_h_ph: np.stack(h)[:, 0],
+                self.main_c_ph: np.stack(c)[:, 0],
+                self.main_d_ph: done,
+
+                self.target_s_ph: state,
+                self.target_h_ph: np.stack(h)[:, 0],
+                self.target_c_ph: np.stack(c)[:, 0],
+                self.target_d_ph: done,
+
+                self.reward_ph: reward,
+                self.done_ph: done,
+                self.action_ph: action})
+
+        td_error = np.mean(target_value - state_action_value)
+        td_error = np.abs(td_error)
+        return td_error
+
+    def train(self, state, action, h, c, reward, done, weight):
+        loss, target_value, state_action_value, _ = self.sess.run(
+            [self.value_loss, self.target_value, self.state_action_value, self.train_op],
+            feed_dict={
+                self.main_s_ph: state,
+                self.main_h_ph: np.stack(h)[:, 0],
+                self.main_c_ph: np.stack(c)[:, 0],
+                self.main_d_ph: done,
+
+                self.target_s_ph: state,
+                self.target_h_ph: np.stack(h)[:, 0],
+                self.target_c_ph: np.stack(c)[:, 0],
+                self.target_d_ph: done,
+
+                self.reward_ph: reward,
+                self.done_ph: done,
+                self.action_ph: action,
+                self.weight_ph: weight})
+
+        td_error = np.mean(target_value - state_action_value, axis=1)
+        td_error = np.abs(td_error)
+
+        return loss, td_error
+
+    def main_to_target(self):
         self.sess.run(self.main_target)
 
     def set_session(self, sess):
         self.sess = sess
         self.sess.run(tf.global_variables_initializer())
 
-    def parameter_sync(self):
-        self.sess.run(self.global_to_session)
+    def get_action(self, state, h, c, epsilon):
+        state = np.stack(state)
+        h = np.stack(h)
+        c = np.stack(c)
 
-    def get_policy_and_action(self, state, previous_action, h, c, epsilon):
-        normalized_state = np.stack(state) / 255
-        q_value, c, h = self.sess.run(
-            [self.one_step_q_value, self.one_step_c, self.one_step_h],
+        q_value, h, c = self.sess.run(
+            [self.q_value, self.h, self.c],
             feed_dict={
-                self.state: [normalized_state],
-                self.previous_action: [previous_action],
-                self.initial_c: [c],
-                self.initial_h: [h]})
+                self.s_ph: [state],
+                self.h_ph: [h],
+                self.c_ph: [c]})
 
         q_value = q_value[0]
-        
+
         if np.random.rand() > epsilon:
             action = np.argmax(q_value)
         else:
             action = np.random.choice(self.num_action)
 
-        return action, q_value, q_value[action], h[0], c[0]
+        return action, q_value, h[0], c[0]
 
-    def train(self, state, action, reward, done, initial_h, initial_c, previous_action):
-        state = np.stack(state)
-        state = np.stack(state) / 255
-        action = np.stack(action)
-        reward = np.stack(reward)
-        done = np.stack(done)
-        initial_h = np.stack(initial_h)
-        initial_c = np.stack(initial_c)
-        previous_action = np.stack(previous_action)
-
-        value_loss, _, learning_rate = self.sess.run(
-            [self.value_loss, self.train_op, self.learning_rate],
+    def main_q_value_test(self, state, h, c, done):
+        main_q = self.sess.run(
+            self.main_q,
             feed_dict={
-                self.trajectory_main_state: state,
-                self.trajectory_main_previous_action: previous_action,
-                self.trajectory_main_initial_c: initial_c,
-                self.trajectory_main_initial_h: initial_h,
+                self.main_s_ph: [state],
+                self.main_h_ph: [h[0]],
+                self.main_c_ph: [c[0]],
+                self.main_d_ph: [done]})
+        return main_q[0]
 
-                self.trajectory_target_state: state,
-                self.trajectory_target_previous_action: previous_action,
-                self.trajectory_target_initial_c: initial_c[:, 0],
-                self.trajectory_target_initial_h: initial_h[:, 0],
-                self.trajectory_target_done: done,
-
-                self.trajectory_reward: reward,
-                self.trajectory_action: action,
-                self.trajectory_done: done})
-
-        return value_loss, learning_rate
-
-    # def test(self):
-    #     self.target_to_main()
-    #     pa = 0
-    #     previous_h = np.zeros([1, self.lstm_hidden_size])
-    #     previous_c = np.zeros([1, self.lstm_hidden_size])
-    #     done = False
-
-    #     state_list = []
-    #     previous_action_list = []
-    #     done_list = []
-    #     previous_h_list = []
-    #     previous_c_list = []
-    #     reward_list = []
-
-    #     q_value_list = []
-
-    #     for i in range(self.trajectory):
-    #         s = np.random.rand(*self.input_shape)
-
-    #         q_value, h, c = self.sess.run(
-    #             [self.one_step_q_value, self.one_step_h, self.one_step_c],
-    #             feed_dict={
-    #                 self.state: [s],
-    #                 self.previous_action: [pa],
-    #                 self.initial_h: previous_h,
-    #                 self.initial_c: previous_c})
-
-    #         q_value_list.append(q_value)
-
-    #         action = q_value[0]
-    #         action = np.argmax(action)
-
-    #         if np.random.rand() > 0.5:
-    #             done = True
-    #             reward = 1
-    #         else:
-    #             done = False
-    #             reward = 0
-
-    #         state_list.append(s)
-    #         previous_action_list.append(pa)
-    #         done_list.append(done)
-    #         reward_list.append(reward)
-    #         previous_h_list.append(previous_h)
-    #         previous_c_list.append(previous_c)
-
-    #         pa = action
-    #         previous_h = h
-    #         previous_c = c
-
-    #         if done:
-    #             s = np.random.rand(*self.input_shape)
-    #             pa = 0
-    #             previous_h = np.zeros([1, self.lstm_hidden_size])
-    #             previous_c = np.zeros([1, self.lstm_hidden_size])
-    #             done = False
-    #     q_value_list = np.stack(q_value_list)[:, 0]
-    #     state_list = np.stack(state_list)
-    #     previous_action_list = np.stack(previous_action_list)
-    #     done_list = np.stack(done_list)
-    #     previous_h_list = np.stack(previous_h_list)[:, 0]
-    #     previous_c_list = np.stack(previous_c_list)[:, 0]
-    #     m_q_value = self.sess.run(
-    #         self.main_q_value,
-    #         feed_dict={
-    #             self.trajectory_main_state: [state_list],
-    #             self.trajectory_main_previous_action: [previous_action_list],
-    #             self.trajectory_main_initial_h: [previous_h_list],
-    #             self.trajectory_main_initial_c: [previous_c_list]})
-    #     m_q_value = m_q_value[0]
-
-    #     t_q_value = self.sess.run(
-    #         self.target_q_value,
-    #         feed_dict={
-    #             self.trajectory_target_state: [state_list],
-    #             self.trajectory_target_previous_action: [previous_action_list],
-    #             self.trajectory_target_initial_h: [previous_h_list[0]],
-    #             self.trajectory_target_initial_c: [previous_c_list[0]],
-    #             self.trajectory_target_done: [done_list]})
-
-    #     t_q_value = t_q_value[0]
-
-    #     self.train(
-    #         state=[state_list],
-    #         action=[previous_action_list],
-    #         reward=[reward_list],
-    #         done=[done_list],
-    #         initial_h=[previous_h_list],
-    #         initial_c=[previous_c_list],
-    #         previous_action=[previous_action_list])
-
-
-    #     print('------------')
-    #     print(q_value_list - t_q_value)
-    #     print('------------')
-    #     print(q_value_list - m_q_value)
-    #     print('------------')
+    def target_q_value_test(self, state, h, c, done):
+        target_q = self.sess.run(
+            self.target_q,
+            feed_dict={
+                self.target_s_ph: [state],
+                self.target_h_ph: [h[0]],
+                self.target_c_ph: [c[0]],
+                self.target_d_ph: [done]})
+        return target_q[0]

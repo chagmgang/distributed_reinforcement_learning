@@ -1,13 +1,6 @@
 import tensorflow as tf
 import numpy as np
 
-def cnn(x):
-    x = tf.layers.conv2d(inputs=x, filters=32, kernel_size=[8, 8], strides=[4, 4], padding='VALID', activation=tf.nn.relu)
-    x = tf.layers.conv2d(inputs=x, filters=64, kernel_size=[4, 4], strides=[2, 2], padding='VALID', activation=tf.nn.relu)
-    x = tf.layers.conv2d(inputs=x, filters=64, kernel_size=[3, 3], strides=[1, 1], padding='VALID', activation=tf.nn.relu)
-    shape = x.get_shape()
-    return tf.layers.flatten(x), [s.value for s in shape]
-
 def action_embedding(previous_action, num_action):
     onehot_action = tf.one_hot(previous_action, num_action)
     x = tf.layers.dense(inputs=onehot_action, units=256, activation=tf.nn.relu)
@@ -21,7 +14,7 @@ def lstm(lstm_size, flatten, initial_h, initial_c):
         cell, flatten, dtype=tf.float32,
         initial_state=initial_state)
     c, h = state
-    
+
     return output, h, c
 
 def fully_connected(x, hidden_list, output_size, final_activation):
@@ -30,95 +23,82 @@ def fully_connected(x, hidden_list, output_size, final_activation):
     x = tf.layers.dense(inputs=x, units=output_size, activation=final_activation)
     return x
 
-def network(state, previous_action, initial_h, initial_c, lstm_size, hidden_list, num_action):
-    image_embedding, _ = cnn(
-        x=state)
-    previous_action_embedding = action_embedding(
-        previous_action=previous_action,
-        num_action=num_action)
-    concat = tf.concat([image_embedding, previous_action_embedding], axis=1)
-    expanded_concat = tf.expand_dims(concat, axis=1)
-    lstm_embedding, h, c = lstm(
+def network(state, initial_h, initial_c, lstm_size, num_action):
+    state = tf.layers.dense(inputs=state, units=128, activation=tf.nn.relu)
+    state = tf.layers.dense(inputs=state, units=128, activation=tf.nn.relu)
+    expanded_state = tf.expand_dims(state, axis=1)
+
+    lstm_out, h, c = lstm(
         lstm_size=lstm_size,
-        flatten=expanded_concat,
+        flatten=expanded_state,
         initial_h=initial_h,
         initial_c=initial_c)
-    lstm_embedding = lstm_embedding[:, -1]
-    q_value = fully_connected(
-        x=lstm_embedding,
-        hidden_list=hidden_list,
-        output_size=num_action,
-        final_activation=None)
-    return q_value, h, c
 
-def build_network(state, previous_action, initial_h, initial_c,
-                  
-                  trajectory_main_state, trajectory_main_previous_action,
-                  trajectory_main_initial_h, trajectory_main_initial_c,
-                  
-                  trajectory_target_state, trajectory_target_previous_action,
-                  trajectory_target_initial_h, trajectory_target_initial_c,
-                  trajectory_target_done,
+    lstm_out = lstm_out[:, -1]
+    q_value = tf.layers.dense(inputs=lstm_out, units=128, activation=tf.nn.relu)
+    value = tf.layers.dense(inputs=q_value, units=num_action, activation=None)
+    mean = tf.layers.dense(inputs=q_value, units=1, activation=None)
+    return value-mean, h, c
 
-                  lstm_size,
-                  num_action,
-                  hidden_list):
+def build_network(s_ph, h_ph, c_ph,
+                  main_s_ph, main_h_ph, main_c_ph, main_d_ph,
+                  target_s_ph, target_h_ph, target_c_ph, target_d_ph,
+                  lstm_size, num_action):
 
-    seq_len = trajectory_target_state.shape[1].value
-    
+    seq_len = main_s_ph.shape[1].value
+
     with tf.variable_scope('main'):
-        one_step_q_value, one_step_h, one_step_c = network(
-            state=state,
-            previous_action=previous_action,
-            initial_h=initial_h,
-            initial_c=initial_c,
+        q_value, h, c = network(
+            state=s_ph,
+            initial_h=h_ph,
+            initial_c=c_ph,
             lstm_size=lstm_size,
-            hidden_list=hidden_list,
             num_action=num_action)
 
     main_q_value_stack = []
+    main_h, main_c = main_h_ph, main_c_ph
     for i in range(seq_len):
         with tf.variable_scope('main', reuse=tf.AUTO_REUSE):
-            main_q_value, _, _ = network(
-                state=trajectory_main_state[:, i],
-                previous_action=trajectory_main_previous_action[:, i],
-                initial_h=trajectory_main_initial_h[:, i],
-                initial_c=trajectory_main_initial_c[:, i],
+            main_q_value, main_h, main_c = network(
+                state=main_s_ph[:, i],
+                initial_h=main_h,
+                initial_c=main_c,
                 lstm_size=lstm_size,
-                hidden_list=hidden_list,
                 num_action=num_action)
+
             main_q_value_stack.append(main_q_value)
+            expanded_main_done = tf.expand_dims(main_d_ph[:, i], axis=1)
+            main_h = tf.to_float(~expanded_main_done) * main_h
+            main_c = tf.to_float(~expanded_main_done) * main_c
+
     main_q_value_stack = tf.stack(main_q_value_stack)
     main_q_value_stack = tf.transpose(main_q_value_stack, perm=[1, 0, 2])
 
     with tf.variable_scope('target'):
         _, _, _ = network(
-            state=state,
-            previous_action=previous_action,
-            initial_h=initial_h,
-            initial_c=initial_c,
+            state=s_ph,
+            initial_h=h_ph,
+            initial_c=c_ph,
             lstm_size=lstm_size,
-            hidden_list=hidden_list,
             num_action=num_action)
 
     target_q_value_stack = []
-    target_h, target_c = trajectory_target_initial_h, trajectory_target_initial_c
+    target_h, target_c = target_h_ph, target_c_ph
     for i in range(seq_len):
         with tf.variable_scope('target', reuse=tf.AUTO_REUSE):
             target_q_value, target_h, target_c = network(
-                state=trajectory_target_state[:, i],
-                previous_action=trajectory_target_previous_action[:, i],
+                state=target_s_ph[:, i],
                 initial_h=target_h,
                 initial_c=target_c,
                 lstm_size=lstm_size,
-                hidden_list=hidden_list,
                 num_action=num_action)
-            expanded_done = tf.expand_dims(trajectory_target_done[:, i], axis=1)
-            target_h = tf.to_float(~expanded_done) * target_h
-            target_c = tf.to_float(~expanded_done) * target_c
 
             target_q_value_stack.append(target_q_value)
+            expanded_target_done = tf.expand_dims(target_d_ph[:, i], axis=1)
+            target_h = tf.to_float(~expanded_target_done) * target_h
+            target_c = tf.to_float(~expanded_target_done) * target_c
+
     target_q_value_stack = tf.stack(target_q_value_stack)
     target_q_value_stack = tf.transpose(target_q_value_stack, perm=[1, 0, 2])
-            
-    return one_step_q_value, one_step_h, one_step_c, main_q_value_stack, target_q_value_stack
+
+    return q_value, h, c, main_q_value_stack, target_q_value_stack

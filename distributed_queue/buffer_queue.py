@@ -4,6 +4,44 @@ import numpy as np
 import random
 import collections
 
+class R2D2TrajectoryBuffer:
+
+    def __init__(self, seq_len):
+        self.seq_len = seq_len
+        
+        self.state = collections.deque(maxlen=int(self.seq_len))
+        self.action = collections.deque(maxlen=int(self.seq_len))
+        self.reward = collections.deque(maxlen=int(self.seq_len))
+        self.done = collections.deque(maxlen=int(self.seq_len))
+        self.initial_h = collections.deque(maxlen=int(self.seq_len))
+        self.initial_c = collections.deque(maxlen=int(self.seq_len))
+
+    def append(self, state, action, reward, done, initial_h, initial_c):
+        self.state.append(state)
+        self.action.append(action)
+        self.reward.append(reward)
+        self.done.append(done)
+        self.initial_h.append(initial_h)
+        self.initial_c.append(initial_c)
+
+    def init(self):
+        self.state = collections.deque(maxlen=int(self.seq_len))
+        self.action = collections.deque(maxlen=int(self.seq_len))
+        self.reward = collections.deque(maxlen=int(self.seq_len))
+        self.done = collections.deque(maxlen=int(self.seq_len))
+        self.initial_h = collections.deque(maxlen=int(self.seq_len))
+        self.initial_c = collections.deque(maxlen=int(self.seq_len))
+
+    def extract(self):
+        data = {
+            'state':self.state,
+            'action':self.action,
+            'reward':self.reward,
+            'done':self.done,
+            'initial_h':self.initial_h,
+            'initial_c':self.initial_c}
+        return data
+
 class ApexFIFOQueue:
 
     def __init__(self, trajectory, input_shape, output_size,
