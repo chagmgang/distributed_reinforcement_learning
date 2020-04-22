@@ -10,14 +10,16 @@ class R2D2TrajectoryBuffer:
         self.seq_len = seq_len
         
         self.state = collections.deque(maxlen=int(self.seq_len))
+        self.previous_action = collections.deque(maxlen=int(self.seq_len))
         self.action = collections.deque(maxlen=int(self.seq_len))
         self.reward = collections.deque(maxlen=int(self.seq_len))
         self.done = collections.deque(maxlen=int(self.seq_len))
         self.initial_h = collections.deque(maxlen=int(self.seq_len))
         self.initial_c = collections.deque(maxlen=int(self.seq_len))
 
-    def append(self, state, action, reward, done, initial_h, initial_c):
+    def append(self, state, previous_action, action, reward, done, initial_h, initial_c):
         self.state.append(state)
+        self.previous_action.append(previous_action)
         self.action.append(action)
         self.reward.append(reward)
         self.done.append(done)
@@ -26,6 +28,7 @@ class R2D2TrajectoryBuffer:
 
     def init(self):
         self.state = collections.deque(maxlen=int(self.seq_len))
+        self.previous_action = collections.deque(maxlen=int(self.seq_len))
         self.action = collections.deque(maxlen=int(self.seq_len))
         self.reward = collections.deque(maxlen=int(self.seq_len))
         self.done = collections.deque(maxlen=int(self.seq_len))
@@ -35,6 +38,7 @@ class R2D2TrajectoryBuffer:
     def extract(self):
         data = {
             'state':self.state,
+            'previous_action':self.previous_action,
             'action':self.action,
             'reward':self.reward,
             'done':self.done,

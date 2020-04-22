@@ -20,16 +20,19 @@ class Agent:
         self.s_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
         self.h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
         self.c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+        self.pa_ph = tf.placeholder(tf.int32, shape=[None])
 
         self.main_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
         self.main_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
         self.main_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
         self.main_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+        self.main_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
 
         self.target_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
         self.target_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
         self.target_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
         self.target_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+        self.target_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
 
         self.reward_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len])
         self.done_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
@@ -38,10 +41,13 @@ class Agent:
 
         self.q_value, self.h, self.c, self.main_q, self.target_q = r2d2_lstm.build_network(
                 s_ph=self.s_ph, h_ph=self.h_ph, c_ph=self.c_ph,
+                pa_ph=self.pa_ph,
                 main_s_ph=self.main_s_ph, main_h_ph=self.main_h_ph,
                 main_c_ph=self.main_c_ph, main_d_ph=self.main_d_ph,
+                main_pa_ph=self.main_pa_ph,
                 target_s_ph=self.target_s_ph, target_h_ph=self.target_h_ph,
                 target_c_ph=self.target_c_ph, target_d_ph=self.target_d_ph,
+                target_pa_ph=self.target_pa_ph,
                 lstm_size=self.lstm_size, num_action=self.num_action)
 
         self.discounts = tf.to_float(~self.done_ph) * 0.997
@@ -78,8 +84,9 @@ class Agent:
 
         self.main_target = utils.main_to_target('main', 'target')
 
-    def get_td_error(self, state, action, h, c, reward, done):
-        state = np.stack([state])
+    def get_td_error(self, state, previous_action, action, h, c, reward, done):
+        state = np.stack([state]) / 255
+        previous_action = np.stack([previous_action])
         action = np.stack([action])
         h = np.stack([h])
         c = np.stack([c])
@@ -93,11 +100,13 @@ class Agent:
                 self.main_h_ph: np.stack(h)[:, 0],
                 self.main_c_ph: np.stack(c)[:, 0],
                 self.main_d_ph: done,
+                self.main_pa_ph: previous_action,
 
                 self.target_s_ph: state,
                 self.target_h_ph: np.stack(h)[:, 0],
                 self.target_c_ph: np.stack(c)[:, 0],
                 self.target_d_ph: done,
+                self.target_pa_ph: previous_action,
 
                 self.reward_ph: reward,
                 self.done_ph: done,
@@ -107,7 +116,8 @@ class Agent:
         td_error = np.abs(td_error)
         return td_error
 
-    def train(self, state, action, h, c, reward, done, weight):
+    def train(self, state, previous_action, action, h, c, reward, done, weight):
+        state = np.stack(state) / 255
         loss, target_value, state_action_value, _ = self.sess.run(
             [self.value_loss, self.target_value, self.state_action_value, self.train_op],
             feed_dict={
@@ -115,11 +125,13 @@ class Agent:
                 self.main_h_ph: np.stack(h)[:, 0],
                 self.main_c_ph: np.stack(c)[:, 0],
                 self.main_d_ph: done,
+                self.main_pa_ph: previous_action,
 
                 self.target_s_ph: state,
                 self.target_h_ph: np.stack(h)[:, 0],
                 self.target_c_ph: np.stack(c)[:, 0],
                 self.target_d_ph: done,
+                self.target_pa_ph: previous_action,
 
                 self.reward_ph: reward,
                 self.done_ph: done,
@@ -138,8 +150,8 @@ class Agent:
         self.sess = sess
         self.sess.run(tf.global_variables_initializer())
 
-    def get_action(self, state, h, c, epsilon):
-        state = np.stack(state)
+    def get_action(self, state, h, c, previous_action, epsilon):
+        state = np.stack(state) / 255
         h = np.stack(h)
         c = np.stack(c)
 
@@ -148,7 +160,8 @@ class Agent:
             feed_dict={
                 self.s_ph: [state],
                 self.h_ph: [h],
-                self.c_ph: [c]})
+                self.c_ph: [c],
+                self.pa_ph: [previous_action]})
 
         q_value = q_value[0]
 
@@ -159,22 +172,27 @@ class Agent:
 
         return action, q_value, h[0], c[0]
 
-    def main_q_value_test(self, state, h, c, done):
+    def main_q_value_test(self, state, h, c, done, previous_action):
+        state = np.stack(state) / 255
+
         main_q = self.sess.run(
             self.main_q,
             feed_dict={
                 self.main_s_ph: [state],
                 self.main_h_ph: [h[0]],
                 self.main_c_ph: [c[0]],
-                self.main_d_ph: [done]})
+                self.main_d_ph: [done],
+                self.main_pa_ph: [previous_action]})
         return main_q[0]
 
-    def target_q_value_test(self, state, h, c, done):
+    def target_q_value_test(self, state, h, c, done, previous_action):
+        state = np.stack(state) / 255
         target_q = self.sess.run(
             self.target_q,
             feed_dict={
                 self.target_s_ph: [state],
                 self.target_h_ph: [h[0]],
                 self.target_c_ph: [c[0]],
-                self.target_d_ph: [done]})
+                self.target_d_ph: [done],
+                self.target_pa_ph: [previous_action]})
         return target_q[0]

@@ -23,10 +23,16 @@ def fully_connected(x, hidden_list, output_size, final_activation):
     x = tf.layers.dense(inputs=x, units=output_size, activation=final_activation)
     return x
 
-def network(state, initial_h, initial_c, lstm_size, num_action):
-    state = tf.layers.dense(inputs=state, units=128, activation=tf.nn.relu)
-    state = tf.layers.dense(inputs=state, units=128, activation=tf.nn.relu)
-    expanded_state = tf.expand_dims(state, axis=1)
+def network(state, previous_action, initial_h, initial_c, lstm_size, num_action):
+    state = tf.layers.dense(inputs=state, units=256, activation=tf.nn.relu)
+    state = tf.layers.dense(inputs=state, units=256, activation=tf.nn.relu)
+
+    previous_action = tf.one_hot(previous_action, num_action)
+    previous_action = tf.layers.dense(inputs=previous_action, units=256, activation=tf.nn.relu)
+    previous_action = tf.layers.dense(inputs=previous_action, units=256, activation=tf.nn.relu)
+
+    concat = tf.concat([state, previous_action], axis=1)
+    expanded_state = tf.expand_dims(concat, axis=1)
 
     lstm_out, h, c = lstm(
         lstm_size=lstm_size,
@@ -40,9 +46,9 @@ def network(state, initial_h, initial_c, lstm_size, num_action):
     mean = tf.layers.dense(inputs=q_value, units=1, activation=None)
     return value-mean, h, c
 
-def build_network(s_ph, h_ph, c_ph,
-                  main_s_ph, main_h_ph, main_c_ph, main_d_ph,
-                  target_s_ph, target_h_ph, target_c_ph, target_d_ph,
+def build_network(s_ph, h_ph, c_ph, pa_ph,
+                  main_s_ph, main_h_ph, main_c_ph, main_d_ph, main_pa_ph,
+                  target_s_ph, target_h_ph, target_c_ph, target_d_ph, target_pa_ph,
                   lstm_size, num_action):
 
     seq_len = main_s_ph.shape[1].value
@@ -50,6 +56,7 @@ def build_network(s_ph, h_ph, c_ph,
     with tf.variable_scope('main'):
         q_value, h, c = network(
             state=s_ph,
+            previous_action=pa_ph,
             initial_h=h_ph,
             initial_c=c_ph,
             lstm_size=lstm_size,
@@ -61,6 +68,7 @@ def build_network(s_ph, h_ph, c_ph,
         with tf.variable_scope('main', reuse=tf.AUTO_REUSE):
             main_q_value, main_h, main_c = network(
                 state=main_s_ph[:, i],
+                previous_action=main_pa_ph[:, i],
                 initial_h=main_h,
                 initial_c=main_c,
                 lstm_size=lstm_size,
@@ -77,6 +85,7 @@ def build_network(s_ph, h_ph, c_ph,
     with tf.variable_scope('target'):
         _, _, _ = network(
             state=s_ph,
+            previous_action=pa_ph,
             initial_h=h_ph,
             initial_c=c_ph,
             lstm_size=lstm_size,
@@ -88,6 +97,7 @@ def build_network(s_ph, h_ph, c_ph,
         with tf.variable_scope('target', reuse=tf.AUTO_REUSE):
             target_q_value, target_h, target_c = network(
                 state=target_s_ph[:, i],
+                previous_action=target_pa_ph[:, i],
                 initial_h=target_h,
                 initial_c=target_c,
                 lstm_size=lstm_size,
