@@ -4,6 +4,7 @@
 
 * 20 actors with 1 learner.
 * Tensorflow implementation with `distributed tensorflow` of server-client architecture.
+* `Recurrent Experience Replay in Distributed Reinforcement Learning` is implemented in CartPole-v0 environment with POMDP(only position state)
 
 ## Dependency
 ```
@@ -18,11 +19,11 @@ tensorflow==1.14.0
 
 - [x] [IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures](https://arxiv.org/abs/1802.01561)
 - [x] [DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY](https://arxiv.org/abs/1803.00933)
-- [ ] [Recurrent Experience Replay in Distributed Reinforcement Learning](https://openreview.net/forum?id=r1lyTjAqYX)
+- [x] [Recurrent Experience Replay in Distributed Reinforcement Learning](https://openreview.net/forum?id=r1lyTjAqYX)
 
 ## How to Run
 
-* DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY
+* Ape-x: DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY
 ```
 python train_apex.py --job_name learner --task 0
 
@@ -42,6 +43,15 @@ CUDA_VISIBLE_DEVICES=-1 python train_impala.py --job_name actor --task 1
 CUDA_VISIBLE_DEVICES=-1 python train_impala.py --job_name actor --task 2
 ...
 CUDA_VISIBLE_DEVICES=-1 python train_impala.py --job_name actor --task 19
+```
+
+* R2D2: Recurrent Experience Replay in Distributed Reinforcement Learning
+```
+python train_r2d2.py --job_name learner --task 0
+
+CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 0
+CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 1
+CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 2
 ```
 
 # Reference
