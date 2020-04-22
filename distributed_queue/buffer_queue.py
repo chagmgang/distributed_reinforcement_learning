@@ -4,20 +4,109 @@ import numpy as np
 import random
 import collections
 
+class R2D2FIFOQueue:
+
+    def __init__(self, seq_len, input_shape, output_size,
+                 queue_size, batch_size, num_actors, lstm_size):
+
+        self.seq_len = seq_len
+        self.input_shape = input_shape
+        self.output_size = output_size
+        self.queue_size = queue_size
+        self.batch_size = batch_size
+        self.num_actors = num_actors
+        self.lstm_size = lstm_size
+
+        self.unrolled_state = tf.placeholder(tf.int32, [self.seq_len, *self.input_shape])
+        self.unrolled_previous_action = tf.placeholder(tf.int32, [self.seq_len])
+        self.unrolled_action = tf.placeholder(tf.int32, [self.seq_len])
+        self.unrolled_reward = tf.placeholder(tf.float32, shape=[self.seq_len])
+        self.unrolled_done = tf.placeholder(tf.bool, shape=[self.seq_len])
+        self.unrolled_previous_h = tf.placeholder(tf.float32, shape=[self.seq_len, self.lstm_size])
+        self.unrolled_previous_c = tf.placeholder(tf.float32, shape=[self.seq_len, self.lstm_size])
+
+        self.queue = tf.FIFOQueue(
+            queue_size,
+            [self.unrolled_state.dtype,
+             self.unrolled_previous_action.dtype,
+             self.unrolled_action.dtype,
+             self.unrolled_reward.dtype,
+             self.unrolled_done.dtype,
+             self.unrolled_previous_h.dtype,
+             self.unrolled_previous_c.dtype], shared_name='buffer')
+
+        self.queue_size = self.queue.size()
+
+        self.enqueue_ops = []
+        for i in range(num_actors):
+            self.enqueue_ops.append(
+                self.queue.enqueue(
+                    [self.unrolled_state,
+                     self.unrolled_previous_action,
+                     self.unrolled_action,
+                     self.unrolled_reward,
+                     self.unrolled_done,
+                     self.unrolled_previous_h,
+                     self.unrolled_previous_c]))
+
+        self.dequeue = self.queue.dequeue()
+
+    def sample_batch(self):
+        batch_tuple = collections.namedtuple('batch_tuple',
+        ['state', 'previous_action', 'action', 'reward',
+         'done', 'previous_h', 'previous_c'])
+
+        batch = [self.sess.run(self.dequeue) for i in range(self.batch_size)]
+
+        unrolled_data = batch_tuple(
+            [i[0] for i in batch],
+            [i[1] for i in batch],
+            [i[2] for i in batch],
+            [i[3] for i in batch],
+            [i[4] for i in batch],
+            [i[5] for i in batch],
+            [i[6] for i in batch])
+
+        return unrolled_data
+
+    def get_size(self):
+        size = self.sess.run(self.queue_size)
+        return size
+
+    def set_session(self, sess):
+        self.sess = sess
+
+    def append_to_queue(self, task, unrolled_state, unrolled_previous_action,
+                        unrolled_action, unrolled_reward, unrolled_done,
+                        unrolled_previous_h, unrolled_previous_c):
+        self.sess.run(
+            self.enqueue_ops[task],
+            feed_dict={
+                self.unrolled_state: unrolled_state,
+                self.unrolled_previous_action: unrolled_previous_action,
+                self.unrolled_action: unrolled_action,
+                self.unrolled_reward: unrolled_reward,
+                self.unrolled_done: unrolled_done,
+                self.unrolled_previous_h: unrolled_previous_h,
+                self.unrolled_previous_c: unrolled_previous_c})
+        
+
 class R2D2TrajectoryBuffer:
 
     def __init__(self, seq_len):
         self.seq_len = seq_len
         
         self.state = collections.deque(maxlen=int(self.seq_len))
+        self.previous_action = collections.deque(maxlen=int(self.seq_len))
         self.action = collections.deque(maxlen=int(self.seq_len))
         self.reward = collections.deque(maxlen=int(self.seq_len))
         self.done = collections.deque(maxlen=int(self.seq_len))
         self.initial_h = collections.deque(maxlen=int(self.seq_len))
         self.initial_c = collections.deque(maxlen=int(self.seq_len))
 
-    def append(self, state, action, reward, done, initial_h, initial_c):
+    def append(self, state, previous_action, action, reward, done, initial_h, initial_c):
         self.state.append(state)
+        self.previous_action.append(previous_action)
         self.action.append(action)
         self.reward.append(reward)
         self.done.append(done)
@@ -26,6 +115,7 @@ class R2D2TrajectoryBuffer:
 
     def init(self):
         self.state = collections.deque(maxlen=int(self.seq_len))
+        self.previous_action = collections.deque(maxlen=int(self.seq_len))
         self.action = collections.deque(maxlen=int(self.seq_len))
         self.reward = collections.deque(maxlen=int(self.seq_len))
         self.done = collections.deque(maxlen=int(self.seq_len))
@@ -35,6 +125,7 @@ class R2D2TrajectoryBuffer:
     def extract(self):
         data = {
             'state':self.state,
+            'previous_action':self.previous_action,
             'action':self.action,
             'reward':self.reward,
             'done':self.done,
