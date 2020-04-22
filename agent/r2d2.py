@@ -10,79 +10,89 @@ import utils
 
 class Agent:
 
-    def __init__(self, seq_len, burn_in, input_shape, num_action, lstm_size):
+    def __init__(self, seq_len, burn_in, input_shape, num_action, lstm_size,
+                 discount_factor, start_learning_rate, end_learning_rate,
+                 learning_frame, gradient_clip_norm, model_name, learner_name):
+
         self.seq_len = seq_len
         self.burn_in = burn_in
         self.input_shape = input_shape
         self.num_action = num_action
         self.lstm_size = lstm_size
+        self.discount_factor = discount_factor
+        self.start_learning_rate = start_learning_rate
+        self.end_learning_rate = end_learning_rate
+        self.learning_frame = learning_frame
 
-        self.s_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
-        self.h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.pa_ph = tf.placeholder(tf.int32, shape=[None])
+        with tf.variable_scope(model_name):
+            with tf.device('/cpu'):
+                self.s_ph = tf.placeholder(tf.float32, shape=[None, *self.input_shape])
+                self.h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.pa_ph = tf.placeholder(tf.int32, shape=[None])
 
-        self.main_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
-        self.main_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.main_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.main_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
-        self.main_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
+                self.main_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
+                self.main_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.main_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.main_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+                self.main_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
 
-        self.target_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
-        self.target_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.target_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
-        self.target_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
-        self.target_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
+                self.target_s_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len, *self.input_shape])
+                self.target_h_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.target_c_ph = tf.placeholder(tf.float32, shape=[None, self.lstm_size])
+                self.target_d_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+                self.target_pa_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
 
-        self.reward_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len])
-        self.done_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
-        self.action_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
-        self.weight_ph = tf.placeholder(tf.float32, shape=[None])
+                self.reward_ph = tf.placeholder(tf.float32, shape=[None, self.seq_len])
+                self.done_ph = tf.placeholder(tf.bool, shape=[None, self.seq_len])
+                self.action_ph = tf.placeholder(tf.int32, shape=[None, self.seq_len])
+                self.weight_ph = tf.placeholder(tf.float32, shape=[None])
 
-        self.q_value, self.h, self.c, self.main_q, self.target_q = r2d2_lstm.build_network(
-                s_ph=self.s_ph, h_ph=self.h_ph, c_ph=self.c_ph,
-                pa_ph=self.pa_ph,
-                main_s_ph=self.main_s_ph, main_h_ph=self.main_h_ph,
-                main_c_ph=self.main_c_ph, main_d_ph=self.main_d_ph,
-                main_pa_ph=self.main_pa_ph,
-                target_s_ph=self.target_s_ph, target_h_ph=self.target_h_ph,
-                target_c_ph=self.target_c_ph, target_d_ph=self.target_d_ph,
-                target_pa_ph=self.target_pa_ph,
-                lstm_size=self.lstm_size, num_action=self.num_action)
+                self.q_value, self.h, self.c, self.main_q, self.target_q = r2d2_lstm.build_network(
+                        s_ph=self.s_ph, h_ph=self.h_ph, c_ph=self.c_ph,
+                        pa_ph=self.pa_ph,
+                        main_s_ph=self.main_s_ph, main_h_ph=self.main_h_ph,
+                        main_c_ph=self.main_c_ph, main_d_ph=self.main_d_ph,
+                        main_pa_ph=self.main_pa_ph,
+                        target_s_ph=self.target_s_ph, target_h_ph=self.target_h_ph,
+                        target_c_ph=self.target_c_ph, target_d_ph=self.target_d_ph,
+                        target_pa_ph=self.target_pa_ph,
+                        lstm_size=self.lstm_size, num_action=self.num_action)
 
-        self.discounts = tf.to_float(~self.done_ph) * 0.997
+                self.discounts = tf.to_float(~self.done_ph) * self.discount_factor
 
-        burned_main_q = self.main_q[:, self.burn_in:]
-        burned_target_q = self.target_q[:, self.burn_in:]
-        burned_reward = self.reward_ph[:, self.burn_in:]
-        burned_discounts = self.discounts[:, self.burn_in:]
-        burned_action = self.action_ph[:, self.burn_in:]
+                burned_main_q = self.main_q[:, self.burn_in:]
+                burned_target_q = self.target_q[:, self.burn_in:]
+                burned_reward = self.reward_ph[:, self.burn_in:]
+                burned_discounts = self.discounts[:, self.burn_in:]
+                burned_action = self.action_ph[:, self.burn_in:]
 
-        state_main_q = burned_main_q[:, :-1]
-        next_state_main_q = burned_main_q[:, 1:]
-        next_state_target_q = burned_target_q[:, 1:]
-        action = burned_action[:, :-1]
-        next_action = tf.argmax(next_state_main_q, axis=2)
-        reward = burned_reward[:, :-1]
-        discounts = burned_discounts[:, :-1]
+                state_main_q = burned_main_q[:, :-1]
+                next_state_main_q = burned_main_q[:, 1:]
+                next_state_target_q = burned_target_q[:, 1:]
+                action = burned_action[:, :-1]
+                next_action = tf.argmax(next_state_main_q, axis=2)
+                reward = burned_reward[:, :-1]
+                discounts = burned_discounts[:, :-1]
 
-        onehot_action = tf.one_hot(action, self.num_action)
-        onehot_next_action = tf.one_hot(next_action, self.num_action)
+                onehot_action = tf.one_hot(action, self.num_action)
+                onehot_next_action = tf.one_hot(next_action, self.num_action)
 
-        self.state_action_value = tf.reduce_sum(state_main_q * onehot_action, axis=2)
-        self.next_state_action_value = tf.reduce_sum(next_state_target_q * onehot_next_action, axis=2)
-        self.rescaled_next_state_action_value = r2d2_optimizer.inverse_value_function_rescaling(
-                x=self.next_state_action_value, eps=1e-3)
-        self.rescaled_target_value = tf.stop_gradient(self.rescaled_next_state_action_value * discounts + reward)
-        self.target_value = r2d2_optimizer.value_function_rescaling(
-                x=self.rescaled_target_value, eps=1e-3)
-        self.unweighted_loss = tf.reduce_mean(((self.target_value - self.state_action_value) ** 2), axis=1)
-        self.value_loss = tf.reduce_mean(self.unweighted_loss * self.weight_ph)
+                self.state_action_value = tf.reduce_sum(state_main_q * onehot_action, axis=2)
+                self.next_state_action_value = tf.reduce_sum(next_state_target_q * onehot_next_action, axis=2)
+                self.rescaled_next_state_action_value = r2d2_optimizer.inverse_value_function_rescaling(
+                        x=self.next_state_action_value, eps=1e-3)
+                self.rescaled_target_value = tf.stop_gradient(self.rescaled_next_state_action_value * discounts + reward)
+                self.target_value = r2d2_optimizer.value_function_rescaling(
+                        x=self.rescaled_target_value, eps=1e-3)
+                self.unweighted_loss = tf.reduce_mean(((self.target_value - self.state_action_value) ** 2), axis=1)
+                self.value_loss = tf.reduce_mean(self.unweighted_loss * self.weight_ph)
 
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=1e-4)
-        self.train_op = self.optimizer.minimize(self.value_loss)
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=1e-4)
+            self.train_op = self.optimizer.minimize(self.value_loss)
 
-        self.main_target = utils.main_to_target('main', 'target')
+        self.main_target = utils.main_to_target(f'{model_name}/main', f'{model_name}/target')
+        self.global_to_session = utils.copy_src_to_dst(learner_name, model_name)
 
     def get_td_error(self, state, previous_action, action, h, c, reward, done):
         state = np.stack([state]) / 255
@@ -142,6 +152,9 @@ class Agent:
         td_error = np.abs(td_error)
 
         return loss, td_error
+
+    def parameter_sync(self):
+        self.sess.run(self.global_to_session)
 
     def main_to_target(self):
         self.sess.run(self.main_target)
