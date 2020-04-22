@@ -63,3 +63,4 @@ CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 2
 5. [google-research/seed-rl](https://github.com/google-research/seed_rl)
 6. [Asynchronous_Advatnage_Actor_Critic](https://github.com/alphastarkor/distributed_tensorflow_a3c)
 7. [Relational_Deep_Reinforcement_Learning](https://github.com/RLOpensource/Relational_Deep_Reinforcement_Learning)
+8. [Deep Recurrent Q-Learning for Partially Observable MDPs](https://arxiv.org/abs/1507.06527)
