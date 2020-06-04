@@ -2,6 +2,7 @@ import gym
 import json
 import time
 import utils
+import wrappers
 
 import tensorflow as tf
 import numpy as np
@@ -167,14 +168,13 @@ def main(_):
         trajectory_buffer = buffer_queue.R2D2TrajectoryBuffer(
             seq_len=data['seq_len'])
 
-        env = gym.make(data['env'][FLAGS.task])
+        env = wrappers.pomdp_uint8_env(data['env'][FLAGS.task])
         episode = 0
         epsilon = 1
         score = 0
+        lives = 5
 
         state = env.reset()
-        state = (np.stack(state) * 255).astype(np.int32)
-        state = [state[0], state[2]]
         previous_action = 0
         previous_h = np.zeros(data['lstm_size'])
         previous_c = np.zeros(data['lstm_size'])
@@ -192,18 +192,23 @@ def main(_):
                     state=state, h=previous_h, c=previous_c,
                     previous_action=previous_action, epsilon=epsilon)
 
-                next_state, reward, done, _ = env.step(action)
-                next_state = (np.stack(next_state) * 255).astype(np.int32)
-                next_state = [next_state[0], next_state[2]]
+                next_state, reward, done, info = env.step(action)
 
                 score += reward
+
+                if lives != info['ale.lives']:
+                    r = -1
+                    d = True
+                else:
+                    r = reward
+                    d = False
 
                 trajectory_buffer.append(
                     state=state,
                     previous_action=previous_action,
                     action=action,
-                    reward=reward,
-                    done=done,
+                    reward=r,
+                    done=d,
                     initial_h=previous_h,
                     initial_c=previous_c)
 
@@ -220,11 +225,10 @@ def main(_):
                     score = 0
                     epsilon = 1.0 / (0.1 * episode + 1)
                     state = env.reset()
-                    state = (np.stack(state) * 255).astype(np.int32)
-                    state = [state[0], state[2]]
                     previous_action = 0
                     previous_h = np.zeros(data['lstm_size'])
                     previous_c = np.zeros(data['lstm_size'])
+                    done = False
 
             trajectory_data = trajectory_buffer.extract()
             r2d2_queue.append_to_queue(
@@ -236,7 +240,6 @@ def main(_):
                 unrolled_done=trajectory_data['done'],
                 unrolled_previous_h=trajectory_data['initial_h'],
                 unrolled_previous_c=trajectory_data['initial_c'])
-
 
 if __name__ == '__main__':
     tf.app.run()

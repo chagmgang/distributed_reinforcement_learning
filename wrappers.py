@@ -93,6 +93,13 @@ class ScaledUint8Frame(gym.ObservationWrapper):
     def observation(self, obs):
         return np.array(obs).astype(np.uint8)
 
+class BlankObservation(gym.ObservationWrapper):
+    def observation(self, obs):
+        if np.random.rand() > 0.8:
+            obs = np.zeros_like(obs)
+            return obs
+        return obs
+
 class BufferWrapper(gym.ObservationWrapper):
     def __init__(self, env, n_steps, dtype=np.float32):
         super(BufferWrapper, self).__init__(env)
@@ -135,4 +142,14 @@ def make_uint8_env_no_fire(env_name):
     env = ProcessFrame84(env)
     env = ImageToPyTorch(env)
     env = BufferWrapper(env, 4)
+    return ScaledUint8Frame(env)
+
+def pomdp_uint8_env(env_name):
+    env = gym.make(env_name)
+    env = MaxAndSkipEnv(env)
+    env = FireResetEnv(env)
+    env = ProcessFrame84(env)
+    env = BlankObservation(env)
+    env = ImageToPyTorch(env)
+    env = BufferWrapper(env, 1)
     return ScaledUint8Frame(env)
