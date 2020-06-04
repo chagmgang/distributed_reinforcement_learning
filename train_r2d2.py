@@ -161,7 +161,7 @@ def main(_):
                     per_replay_buffer.update(
                         idxs[i], td_error[i])
 
-                if train_step % 100 == 0:
+                if train_step % 2500 == 0:
                     learner.main_to_target()
 
     else:
@@ -229,6 +229,7 @@ def main(_):
                     previous_h = np.zeros(data['lstm_size'])
                     previous_c = np.zeros(data['lstm_size'])
                     done = False
+                    lives = 5
 
             trajectory_data = trajectory_buffer.extract()
             r2d2_queue.append_to_queue(
