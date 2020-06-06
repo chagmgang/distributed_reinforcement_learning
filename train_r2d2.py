@@ -236,9 +236,7 @@ def main(_):
                     previous_h = np.zeros(data['lstm_size'])
                     previous_c = np.zeros(data['lstm_size'])
                     done = False
-                    lives = 5
-                    episode_step = 0
-                    episode_q_value = 0
+
 
             trajectory_data = trajectory_buffer.extract()
             r2d2_queue.append_to_queue(
