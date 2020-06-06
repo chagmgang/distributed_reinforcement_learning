@@ -24,8 +24,10 @@ def fully_connected(x, hidden_list, output_size, final_activation):
     return x
 
 def network(state, previous_action, initial_h, initial_c, lstm_size, num_action):
-    state = tf.layers.dense(inputs=state, units=256, activation=tf.nn.relu)
-    state = tf.layers.dense(inputs=state, units=256, activation=tf.nn.relu)
+    state = tf.layers.conv2d(inputs=state, filters=32, kernel_size=[8, 8], strides=[4, 4], padding='VALID', activation=tf.nn.relu)
+    state = tf.layers.conv2d(inputs=state, filters=64, kernel_size=[4, 4], strides=[2, 2], padding='VALID', activation=tf.nn.relu)
+    state = tf.layers.conv2d(inputs=state, filters=64, kernel_size=[3, 3], strides=[1, 1], padding='VALID', activation=tf.nn.relu)
+    state = tf.layers.flatten(state)
 
     previous_action = tf.one_hot(previous_action, num_action)
     previous_action = tf.layers.dense(inputs=previous_action, units=256, activation=tf.nn.relu)
