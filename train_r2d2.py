@@ -173,6 +173,8 @@ def main(_):
         epsilon = 1
         score = 0
         lives = 5
+        episode_step = 0
+        episode_q_value = 0
 
         state = env.reset()
         previous_action = 0
@@ -191,6 +193,9 @@ def main(_):
                 action, q_value, h, c = actor.get_action(
                     state=state, h=previous_h, c=previous_c,
                     previous_action=previous_action, epsilon=epsilon)
+
+                episode_q_value += q_value
+                episode_step += 1
 
                 next_state, reward, done, info = env.step(action)
 
@@ -221,15 +226,19 @@ def main(_):
                     print(episode, score)
                     writer.add_scalar('data/score', score, episode)
                     writer.add_scalar('data/epsilon', epsilon, episode)
+                    writer.add_scalar('data/episode_step', episode_step, episode)
+                    writer.add_scalar('data/avg_q_value', episode_q_value / episode_step, episode)
                     episode += 1
                     score = 0
-                    epsilon = 1.0 / (0.1 * episode + 1)
+                    epsilon = 1.0 / (0.01 * episode + 1)
                     state = env.reset()
                     previous_action = 0
                     previous_h = np.zeros(data['lstm_size'])
                     previous_c = np.zeros(data['lstm_size'])
                     done = False
                     lives = 5
+                    episode_step = 0
+                    episode_q_value = 0
 
             trajectory_data = trajectory_buffer.extract()
             r2d2_queue.append_to_queue(

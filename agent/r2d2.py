@@ -183,7 +183,7 @@ class Agent:
         else:
             action = np.random.choice(self.num_action)
 
-        return action, q_value, h[0], c[0]
+        return action, q_value[action], h[0], c[0]
 
     def main_q_value_test(self, state, h, c, done, previous_action):
         state = np.stack(state) / 255
