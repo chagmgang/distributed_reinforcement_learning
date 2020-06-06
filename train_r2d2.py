@@ -236,6 +236,7 @@ def main(_):
                     previous_h = np.zeros(data['lstm_size'])
                     previous_c = np.zeros(data['lstm_size'])
                     done = False
+                    lives = 5
 
 
             trajectory_data = trajectory_buffer.extract()
