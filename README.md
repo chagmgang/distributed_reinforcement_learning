@@ -4,7 +4,7 @@
 
 * 20 actors with 1 learner.
 * Tensorflow implementation with `distributed tensorflow` of server-client architecture.
-* `Recurrent Experience Replay in Distributed Reinforcement Learning` is implemented in CartPole-v0 environment with POMDP(only position state)
+* `Recurrent Experience Replay in Distributed Reinforcement Learning` is implemented in Breakout-Deterministic-v4 with POMDP(Observation not provided with 20% probability)
 
 ## Dependency
 ```
@@ -52,6 +52,8 @@ python train_r2d2.py --job_name learner --task 0
 CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 0
 CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 1
 CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 2
+...
+CUDA_VISIBLE_DEVICES=-1 python train_r2d2.py --job_name actor --task 39
 ```
 
 # Reference
