@@ -157,7 +157,7 @@ def main(_):
                 writer.add_scalar('data/loss', loss, train_step)
                 writer.add_scalar('data/time', time.time() - s, train_step)
 
-                if i in range(len(idxs)):
+                for i in range(len(idxs)):
                     per_replay_buffer.update(
                         idxs[i], td_error[i])
 
