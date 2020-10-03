@@ -4,6 +4,76 @@ import numpy as np
 import random
 import collections
 
+class A3CFIFOQueue:
+
+    def __init__(self, trajectory_size, input_shape,
+                 output_size, num_actors):
+
+        self.input_shape = input_shape
+        self.output_size = output_size
+        self.num_actors = num_actors
+
+        self.unrolled_state = tf.placeholder(tf.int32, shape=[trajectory_size, *self.input_shape])
+        self.unrolled_next_state = tf.placeholder(tf.int32, shape=[trajectory_size, *self.input_shape])
+        self.unrolled_previous_action = tf.placeholder(tf.int32, shape=[trajectory_size])
+        self.unrolled_action = tf.placeholder(tf.int32, shape=[trajectory_size])
+        self.unrolled_reward = tf.placeholder(tf.float32, shape=[trajectory_size])
+        self.unrolled_done = tf.placeholder(tf.bool, shape=[trajectory_size])
+
+        self.queue = tf.FIFOQueue(
+                1,
+                [self.unrolled_state.dtype,
+                 self.unrolled_next_state.dtype,
+                 self.unrolled_previous_action.dtype,
+                 self.unrolled_action.dtype,
+                 self.unrolled_reward.dtype,
+                 self.unrolled_done.dtype], shared_name='buffer')
+
+        self.queue_size = self.queue.size()
+        self.enqueue_ops = []
+        for i in range(num_actors):
+            self.enqueue_ops.append(
+                    self.queue.enqueue(
+                        [self.unrolled_state,
+                         self.unrolled_next_state,
+                         self.unrolled_previous_action,
+                         self.unrolled_action,
+                         self.unrolled_reward,
+                         self.unrolled_done]))
+
+        self.dequeue = self.queue.dequeue()
+
+    def sample_batch(self):
+        batch_tuple = collections.namedtuple(
+                'batch_tuple',
+                ['state', 'next_state', 'previous_action', 'action',
+                 'reward', 'done'])
+        batch = self.sess.run(self.dequeue)
+        unrolled_data = batch_tuple(
+                [batch[0]], [batch[1]], [batch[2]],
+                [batch[3]], [batch[4]], [batch[5]])
+        return unrolled_data
+
+    def get_size(self):
+        size = self.sess.run(self.queue_size)
+        return size
+
+    def set_session(self, sess):
+        self.sess = sess
+
+    def append_to_queue(self, task, unrolled_state,
+                        unrolled_next_state, unrolled_previous_action,
+                        unrolled_action, unrolled_reward, unrolled_done):
+        self.sess.run(
+                self.enqueue_ops[task],
+                feed_dict={
+                    self.unrolled_state: unrolled_state,
+                    self.unrolled_next_state: unrolled_next_state,
+                    self.unrolled_previous_action: unrolled_previous_action,
+                    self.unrolled_action: unrolled_action,
+                    self.unrolled_reward: unrolled_reward,
+                    self.unrolled_done: unrolled_done})
+
 class R2D2FIFOQueue:
 
     def __init__(self, seq_len, input_shape, output_size,
