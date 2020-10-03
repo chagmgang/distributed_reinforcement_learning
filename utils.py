@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 import collections
 
@@ -42,6 +43,38 @@ def check_properties(data):
     ## check available_action size == env size
     assert len(data['available_action']) == len(data['env'])
     assert data['reward_clipping'] in ['abs_one', 'soft_asymmetric']
+
+class UnrolledA3CTrajectory:
+
+    def __init__(self):
+        self.trajectory_data = collections.namedtuple(
+                'trajectory_data',
+                ['state', 'next_state', 'reward', 'done',
+                 'action', 'previous_action'])
+
+    def initialize(self):
+        self.unroll_data = self.trajectory_data(
+                [],[],[],[],[],[])
+
+    def append(self, state, next_state, previous_action,
+               action, reward, done):
+
+        self.unroll_data.state.append(state)
+        self.unroll_data.next_state.append(next_state)
+        self.unroll_data.previous_action.append(previous_action)
+        self.unroll_data.action.append(action)
+        self.unroll_data.reward.append(reward)
+        self.unroll_data.done.append(done)
+
+    def extract(self):
+        data = {
+                'state': np.stack(self.unroll_data.state),
+                'next_state': np.stack(self.unroll_data.next_state),
+                'previous_action': np.stack(self.unroll_data.previous_action),
+                'action': np.stack(self.unroll_data.action),
+                'reward': np.stack(self.unroll_data.reward),
+                'done': np.stack(self.unroll_data.done)}
+        return data
 
 
 class UnrolledTrajectory:

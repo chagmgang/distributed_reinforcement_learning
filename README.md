@@ -17,11 +17,23 @@ tensorflow==1.14.0
 
 ## Implementation
 
+- [x] [Asynchronous Methods for Deep Reinforcement Learning](https://arxiv.org/pdf/1602.01783.pdf)
 - [x] [IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures](https://arxiv.org/abs/1802.01561)
 - [x] [DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY](https://arxiv.org/abs/1803.00933)
 - [x] [Recurrent Experience Replay in Distributed Reinforcement Learning](https://openreview.net/forum?id=r1lyTjAqYX)
 
 ## How to Run
+
+* A3C: Asynchronous Methods for Deep Reinforcement Learning
+```
+CUDA_VISIBLE_DEVICES=-1 python train_a3c.py --job_name --job_name actor --task 0
+
+CUDA_VISIBLE_DEVICES=-1 python train_a3c.py --job_name --job_name actor --task 0
+CUDA_VISIBLE_DEVICES=-1 python train_a3c.py --job_name --job_name actor --task 1
+CUDA_VISIBLE_DEVICES=-1 python train_a3c.py --job_name --job_name actor --task 2
+...
+CUDA_VISIBLE_DEVICES=-1 python train_a3c.py --job_name --job_name actor --task 19
+```
 
 * Ape-x: DISTRIBUTED PRIORITIZED EXPERIENCE REPLAY
 ```
